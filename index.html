@@ -326,20 +326,50 @@ tr:hover td{background:var(--hover)}
       <div class="login-sub">COE — PMERJ</div>
       <div class="login-ver">SISTEMA DE GESTÃO OPERACIONAL v3.0</div>
     </div>
-    <div style="display:flex;flex-direction:column;gap:13px">
+
+    <!-- ── FORMULÁRIO PRINCIPAL ── -->
+    <div id="main-login-form" style="display:flex;flex-direction:column;gap:13px">
       <div>
         <label class="lbl">RG / NÚMERO FUNCIONAL</label>
-        <input id="l-rg" class="linp" placeholder="Ex: 82061" maxlength="6" inputmode="numeric">
+        <input id="l-rg" class="linp" placeholder="Ex: 82061" maxlength="7" inputmode="numeric">
       </div>
       <div>
-        <label class="lbl">TOKEN DE ACESSO</label>
-        <input id="l-tok" class="linp" type="password" placeholder="••••••••">
+        <label class="lbl" id="l-senha-lbl">SENHA / TOKEN DE ACESSO</label>
+        <input id="l-tok" class="linp" type="password" placeholder="••••••••" maxlength="12">
+        <div style="color:#4A6080;font-size:9px;margin-top:5px;letter-spacing:.3px">
+          ⭐ ADM: token gerado pelo administrador &nbsp;·&nbsp; 👤 Membros: senha de 6 dígitos
+        </div>
       </div>
       <div id="l-err" class="lerr">⚠️ <span id="l-errmsg"></span></div>
       <button id="l-btn" class="lbtn" onclick="Auth.login()">🔒 ACESSAR SISTEMA</button>
     </div>
+
+    <!-- ── PRIMEIRO ACESSO (membros não-ADM) ── -->
+    <div id="primeiro-acesso" style="display:none;flex-direction:column;gap:0">
+      <div style="text-align:center;padding:4px 0 18px">
+        <div style="font-size:30px;margin-bottom:8px">🔐</div>
+        <div style="color:#D4A017;font-size:12px;font-weight:800;letter-spacing:2px">PRIMEIRO ACESSO</div>
+        <div style="color:#8AACCC;font-size:11px;margin-top:5px">Crie sua senha pessoal de 6 dígitos numéricos</div>
+        <div style="color:#FFF;font-size:13px;margin-top:10px;font-weight:700" id="pa-nome"></div>
+        <div style="color:#8AACCC;font-size:10px;margin-top:2px">RG: <span id="pa-rg"></span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="lbl">NOVA SENHA (6 DÍGITOS NUMÉRICOS)</label>
+          <input id="pa-pin1" class="linp" type="password" placeholder="••••••" maxlength="6" inputmode="numeric" pattern="[0-9]*">
+        </div>
+        <div>
+          <label class="lbl">CONFIRMAR SENHA</label>
+          <input id="pa-pin2" class="linp" type="password" placeholder="••••••" maxlength="6" inputmode="numeric" pattern="[0-9]*">
+        </div>
+        <div id="pa-err" class="lerr" style="display:none">⚠️ <span id="pa-errmsg"></span></div>
+        <button id="pa-btn" class="lbtn" onclick="Auth.confirmarPin()">✅ CRIAR SENHA E ACESSAR</button>
+        <button class="lbtn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);margin-top:-4px" onclick="Auth.cancelarPrimeiroAcesso()">← Voltar ao Login</button>
+      </div>
+    </div>
+
     <div class="lhint">ACESSO RESTRITO A MILITARES AUTORIZADOS · SPAEI/COE-PMERJ<br>
-      <span>Demo: RG 82061 + Token COE2026</span></div>
+      <span>ADM Demo: RG 82061 + Token COE2026</span></div>
   </div>
 </div>
 
@@ -551,57 +581,151 @@ const Auth={
 
   async login(){
     const rg=document.getElementById('l-rg').value.trim();
-    const tok=document.getElementById('l-tok').value.trim();
+    const senha=document.getElementById('l-tok').value.trim();
     const btn=document.getElementById('l-btn');
     const err=document.getElementById('l-err');
     err.style.display='none';
-    if(!rg||!tok){this.showErr('Preencha RG e Token.');return;}
+
+    if(!rg){this.showErr('Informe o RG / número funcional.');return;}
     btn.disabled=true;
-    btn.innerHTML='<span class="spin">⟳</span> AUTENTICANDO...';
+    btn.innerHTML='<span class="spin">⟳</span> VERIFICANDO...';
 
     const efetivo=DB.get('efetivo')||[];
     const militar=efetivo.find(e=>e.rg===rg);
     if(!militar){
-      await new Promise(r=>setTimeout(r,800));
+      await new Promise(r=>setTimeout(r,700));
       this.showErr('RG não encontrado. Contate o administrador.');
       btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
     }
 
-    // Verificar token
-    const tokens=DB.get('tokens')||{};
-    const td=tokens[rg];
-    let valido=false;
+    await new Promise(r=>setTimeout(r,400));
 
-    if(td){
-      if(td.salt==='bootstrap'){
-        // Tokens de bootstrap aceitam "COE2026" ou rg como token
-        valido=(tok==='COE2026'||tok===rg);
-      } else {
-        const h=await sha256(td.salt+tok);
-        valido=(h===td.hash&&td.ativo);
+    // ──── ADM / CHEFE: usa token ────────────────────────────────
+    if(militar.admin||militar.chefe){
+      if(!senha){
+        this.showErr('Informe o Token de Acesso.');
+        btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
+      }
+      const tokens=DB.get('tokens')||{};
+      const td=tokens[rg];
+      let valido=false;
+      if(td){
+        if(td.salt==='bootstrap'){
+          valido=(senha==='COE2026'||senha===rg);
+        } else {
+          const h=await sha256(td.salt+senha);
+          valido=(h===td.hash&&td.ativo);
+        }
+      }
+      if(!valido){
+        this.showErr('Token inválido ou expirado. Contate o administrador.');
+        btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
+      }
+
+    // ──── MEMBRO: usa PIN de 6 dígitos ─────────────────────────
+    } else {
+      const pins=DB.get('pins')||{};
+      const pinData=pins[rg];
+
+      if(!pinData){
+        // PRIMEIRO ACESSO — redirecionar para criação de senha
+        btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';
+        this.showPrimeiroAcesso(militar);
+        return;
+      }
+
+      if(!senha){
+        this.showErr('Informe sua Senha de 6 dígitos.');
+        btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
+      }
+      // Valida PIN
+      const h=await sha256(pinData.salt+senha);
+      if(h!==pinData.hash){
+        this.showErr('Senha incorreta. Tente novamente.');
+        btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
       }
     }
 
-    await new Promise(r=>setTimeout(r,700));
+    // ── Login bem-sucedido ─────────────────────────────────────
+    this._finalizarLogin(militar);
+    btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';
+  },
 
-    if(!valido){
-      this.showErr('Token inválido ou expirado. Contate o administrador.');
-      btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
-    }
-
+  _finalizarLogin(militar){
     this.user={...militar};
     sessionStorage.setItem(this.SESSION_KEY,JSON.stringify(this.user));
-
-    // Log
     const logs=DB.get('logs')||[];
     logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-      tipo:'LOGIN',desc:`${militar.posto} ${militar.nome} acessou (RG ${rg})`});
+      tipo:'LOGIN',desc:`${militar.posto} ${militar.nome} acessou (RG ${militar.rg})`});
     DB.set('logs',logs.slice(0,200));
-
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='flex';
     App.init();
-    btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';
+  },
+
+  showPrimeiroAcesso(militar){
+    // Esconde o form principal, exibe o de primeiro acesso
+    document.getElementById('main-login-form').style.display='none';
+    const pa=document.getElementById('primeiro-acesso');
+    pa.style.display='flex';
+    document.getElementById('pa-nome').textContent=`${militar.posto} ${militar.nome.split(' ')[0]}`;
+    document.getElementById('pa-rg').textContent=militar.rg;
+    document.getElementById('pa-err').style.display='none';
+    document.getElementById('pa-pin1').value='';
+    document.getElementById('pa-pin2').value='';
+    this._pendingMilitar=militar;
+  },
+
+  async confirmarPin(){
+    const pin1=document.getElementById('pa-pin1').value.trim();
+    const pin2=document.getElementById('pa-pin2').value.trim();
+    const btn=document.getElementById('pa-btn');
+    document.getElementById('pa-err').style.display='none';
+
+    if(!/^\d{6}$/.test(pin1)){
+      this.showPinErr('A senha deve ter exatamente 6 dígitos numéricos.');return;
+    }
+    if(pin1!==pin2){
+      this.showPinErr('As senhas não conferem. Tente novamente.');return;
+    }
+
+    btn.disabled=true;
+    btn.innerHTML='<span class="spin">⟳</span> SALVANDO...';
+
+    const salt=uid().slice(0,16);
+    const hash=await sha256(salt+pin1);
+    const pins=DB.get('pins')||{};
+    pins[this._pendingMilitar.rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
+    DB.set('pins',pins);
+
+    const logs=DB.get('logs')||[];
+    logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo:'PIN',desc:`Senha criada (1º acesso): ${this._pendingMilitar.posto} ${this._pendingMilitar.nome} (RG ${this._pendingMilitar.rg})`});
+    DB.set('logs',logs.slice(0,200));
+
+    btn.disabled=false;btn.innerHTML='✅ CRIAR SENHA E ACESSAR';
+    this._restaurarLoginForm();
+    this._finalizarLogin(this._pendingMilitar);
+    this._pendingMilitar=null;
+  },
+
+  cancelarPrimeiroAcesso(){
+    this._pendingMilitar=null;
+    this._restaurarLoginForm();
+    document.getElementById('l-rg').value='';
+    document.getElementById('l-tok').value='';
+    document.getElementById('l-err').style.display='none';
+  },
+
+  _restaurarLoginForm(){
+    document.getElementById('primeiro-acesso').style.display='none';
+    document.getElementById('main-login-form').style.display='flex';
+  },
+
+  showPinErr(msg){
+    const e=document.getElementById('pa-err');
+    document.getElementById('pa-errmsg').textContent=msg;
+    e.style.display='flex';
   },
 
   showErr(msg){
@@ -614,10 +738,15 @@ const Auth={
     if(!confirm('Deseja sair do SPAEI DIGITAL?'))return;
     sessionStorage.removeItem(this.SESSION_KEY);
     this.user=null;
+    this._pendingMilitar=null;
     document.getElementById('app').style.display='none';
     document.getElementById('login').style.display='flex';
     document.getElementById('l-rg').value='';
     document.getElementById('l-tok').value='';
+    document.getElementById('l-err').style.display='none';
+    // Garantir que o form principal esteja visível e o de primeiro acesso escondido
+    document.getElementById('main-login-form').style.display='flex';
+    document.getElementById('primeiro-acesso').style.display='none';
   },
 
   restore(){
@@ -1467,7 +1596,11 @@ const Render={
           <td>
             <div style="display:flex;gap:4px">
               <button class="btn btn-ghost btn-sm" title="Editar" onclick="Render._editMembro(${m.id})">✏️</button>
-              <button class="btn btn-ghost btn-sm" title="Gerar Token" onclick="Render._gerarToken('${m.rg}','${m.nome.split(' ')[0]}')">🔑</button>
+              ${(m.admin||m.chefe)
+                ?`<button class="btn btn-ghost btn-sm" title="Gerar Token ADM" onclick="Render._gerarToken('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#B45309">🔑</button>`
+                :(DB.get('pins')||{})[m.rg]
+                  ?`<button class="btn btn-ghost btn-sm" title="Resetar senha do membro" onclick="Render._resetarPin('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#166534">🔐</button>`
+                  :`<button class="btn btn-ghost btn-sm" title="Aguardando 1º acesso" style="color:#CBD5E1;cursor:default">🔓</button>`}
               <button class="btn btn-danger btn-sm" title="Remover" onclick="Render._delMembro(${m.id})">🗑️</button>
             </div>
           </td>
@@ -1496,29 +1629,63 @@ const Render={
         </div>`;
     } else if(tab==='tokens'){
       const toks=DB.get('tokens')||{};
+      const pins=DB.get('pins')||{};
       const ef=DB.get('efetivo')||[];
-      const lista=Object.entries(toks);
-      box.innerHTML=lista.length===0
-        ?`<div class="empty"><span class="empty-ico">🔑</span>Nenhum token gerado ainda.<br><small>Acesse a aba Efetivo e clique em "Gerar" ao lado do militar.</small></div>`
-        :lista.map(([rg,td])=>`
-        <div class="tok-card">
-          <div>
-            <div class="tok-rg">RG ${rg} — ${ef.find(e=>e.rg===rg)?.nome||'?'}</div>
-            <div class="tok-val">${td.salt==='bootstrap'?'COE2026':td.tkPlano||'••••••••'}</div>
-            <div class="tok-dt">Gerado em: ${td.criado}${td.salt==='bootstrap'?' (padrão bootstrap)':''}</div>
+      const admins=ef.filter(m=>m.admin||m.chefe);
+      const membros=ef.filter(m=>!m.admin&&!m.chefe);
+
+      const secTitle=(txt,cor)=>`<div style="font-size:11px;font-weight:700;color:${cor};letter-spacing:1px;padding:10px 14px 6px;background:var(--thead);border-bottom:1px solid var(--border);margin-top:10px;border-radius:8px 8px 0 0">${txt}</div>`;
+
+      const admHTML=admins.length===0?'':`
+        ${secTitle('⭐ ADMINISTRADORES — TOKEN DE ACESSO','#B45309')}
+        ${admins.map(m=>{const td=toks[m.rg];return`
+        <div class="tok-card" style="border-radius:0;border-left:3px solid #D4A017">
+          <div style="min-width:0;flex:1">
+            <div class="tok-rg">${m.posto} ${m.nome}</div>
+            ${td
+              ?`<div class="tok-val" style="font-size:15px">${td.salt==='bootstrap'?'COE2026':td.tkPlano||'••••••••'}</div>
+                 <div class="tok-dt">Gerado em: ${td.criado}${td.salt==='bootstrap'?' · padrão bootstrap':''}</div>`
+              :`<div style="color:#DC2626;font-size:11px;font-weight:700;margin-top:2px">⚠️ Sem token — não consegue acessar</div>`}
           </div>
-          <button class="btn btn-danger btn-sm" onclick="Render._revogarToken('${rg}')">🗑️ Revogar</button>
-        </div>`).join('');
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-ghost btn-sm" onclick="Render._gerarToken('${m.rg}','${m.nome.split(' ')[0]}')" title="Gerar novo token">🔑 Gerar</button>
+            ${td?`<button class="btn btn-danger btn-sm" onclick="Render._revogarToken('${m.rg}')" title="Revogar token">🗑️</button>`:''}
+          </div>
+        </div>`}).join('')}`;
+
+      const memHTML=membros.length===0?'':`
+        ${secTitle('👤 MEMBROS — SENHA DE 6 DÍGITOS (PIN)','#166534')}
+        ${membros.map(m=>{const pd=pins[m.rg];return`
+        <div class="tok-card" style="border-radius:0;border-left:3px solid #166534">
+          <div style="min-width:0;flex:1">
+            <div class="tok-rg">${m.posto} ${m.nome}${m.adido?' <span style="color:#D97706;font-size:9px">(ADIDO)</span>':''}</div>
+            ${pd
+              ?`<div style="color:#166534;font-size:13px;font-weight:700;margin-top:3px">✅ Senha ativa</div>
+                 <div class="tok-dt">Criada em: ${pd.criado}</div>`
+              :`<div style="color:#D97706;font-size:11px;font-weight:700;margin-top:3px">🔄 Aguardando 1º acesso — sem senha ainda</div>`}
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            ${pd?`<button class="btn btn-danger btn-sm" onclick="Render._resetarPin('${m.rg}','${m.nome.split(' ')[0]}')" title="Resetar PIN">🔄 Resetar</button>`:''}
+          </div>
+        </div>`}).join('')}`;
+
+      box.innerHTML=`<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px">
+        ${admHTML}${memHTML}
+      </div>
+      <div style="background:var(--azcl);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:11px;color:var(--muted)">
+        ℹ️ <b>ADMs</b> acessam com tokens gerados aqui. <b>Membros</b> criam sua própria senha de 6 dígitos no primeiro acesso — você pode resetá-la se necessário.
+      </div>`;
     } else if(tab==='logs'){
       const logs=DB.get('logs')||[];
       box.innerHTML=`<div class="card">
         <div style="font-weight:700;font-size:14px;margin-bottom:12px;color:var(--text)">Log de Auditoria — Acessos e Alterações</div>
-        ${logs.slice(0,50).map(l=>`
-        <div class="log-row" style="border-left:3px solid ${l.tipo==='LOGIN'?'#16A34A':l.tipo==='CRIAÇÃO'?'#2563EB':l.tipo==='TOKEN'?'#D97706':'#7C3AED'}">
+        ${logs.slice(0,50).map(l=>{
+          const logCor=l.tipo==='LOGIN'?'#16A34A':l.tipo==='CRIAÇÃO'?'#2563EB':l.tipo==='TOKEN'?'#D97706':l.tipo==='PIN'?'#166534':l.tipo==='EXCLUSÃO'?'#DC2626':'#7C3AED';
+          return`<div class="log-row" style="border-left:3px solid ${logCor}">
           <span class="log-dt">${l.dt}</span>
-          <span class="log-tipo" style="color:${l.tipo==='LOGIN'?'#16A34A':l.tipo==='CRIAÇÃO'?'#2563EB':l.tipo==='TOKEN'?'#D97706':'#7C3AED'}">${l.tipo}</span>
+          <span class="log-tipo" style="color:${logCor}">${l.tipo}</span>
           <span class="log-desc">${l.desc}</span>
-        </div>`).join('')}
+        </div>`;}).join('')}
       </div>`;
     } else if(tab==='config'){
       box.innerHTML=`<div class="card">
@@ -1528,7 +1695,8 @@ const Render={
           ['Unidade','SPAEI / COE-PMERJ'],
           ['Modo','Standalone (localStorage)'],
           ['Persistência','localStorage do navegador'],
-          ['Autenticação','SHA-256 via Web Crypto API'],
+          ['Autenticação ADM','Token gerado pelo administrador (SHA-256)'],
+          ['Autenticação Membro','Senha PIN de 6 dígitos (SHA-256, criada no 1º acesso)'],
           ['Sessão','sessionStorage (fecha ao fechar o navegador)'],
           ['Exportação','CSV com BOM UTF-8'],
           ['Versão','3.0.0 — Jul/2026'],
@@ -1713,12 +1881,19 @@ const Render={
     const m=ef.find(e=>e.id===id);
     if(!m)return;
     if(m.rg===Auth.user?.rg){alert('Você não pode remover a si mesmo.');return;}
-    if(!confirm(`Remover ${m.posto} ${m.nome} (RG ${m.rg}) do sistema?\n\nO token de acesso também será revogado.`))return;
+    const temPin=(DB.get('pins')||{})[m.rg];
+    const temTok=(DB.get('tokens')||{})[m.rg];
+    const avisoAcesso=temTok?' (token revogado)':temPin?' (senha excluída)':'';
+    if(!confirm(`Remover ${m.posto} ${m.nome} (RG ${m.rg}) do sistema?${avisoAcesso?'\n\n'+avisoAcesso.trim():''}`))return;
     DB.set('efetivo',ef.filter(e=>e.id!==id));
-    // Revogar token
+    // Revogar token (ADMs)
     const toks=DB.get('tokens')||{};
     delete toks[m.rg];
     DB.set('tokens',toks);
+    // Excluir PIN (membros)
+    const pins=DB.get('pins')||{};
+    delete pins[m.rg];
+    DB.set('pins',pins);
     // Log
     const logs=DB.get('logs')||[];
     logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
@@ -1759,14 +1934,38 @@ const Render={
     const toks=DB.get('tokens')||{};
     delete toks[rg];
     DB.set('tokens',toks);
+    const logs=DB.get('logs')||[];
+    logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo:'TOKEN',desc:`Token revogado — RG ${rg}`});
+    DB.set('logs',logs.slice(0,200));
     Render.admin();
   },
 
+  _resetarPin(rg,primeiroNome){
+    const ef=DB.get('efetivo')||[];
+    const m=ef.find(e=>e.rg===rg);
+    if(!confirm(`Resetar a senha de ${m?.posto||''} ${m?.nome||rg}?\n\nO militar precisará criar uma nova senha no próximo acesso.`))return;
+    const pins=DB.get('pins')||{};
+    delete pins[rg];
+    DB.set('pins',pins);
+    const logs=DB.get('logs')||[];
+    logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo:'PIN',desc:`Senha resetada pelo ADM — RG ${rg} (${primeiroNome})`});
+    DB.set('logs',logs.slice(0,200));
+    Render.admin();
+    // Toast
+    const tip=document.createElement('div');
+    tip.style.cssText='position:fixed;top:70px;right:18px;background:#92400E;color:#FFF;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:700;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+    tip.textContent=`🔄 Senha resetada: ${primeiroNome}. Ele precisará criar nova senha no próximo acesso.`;
+    document.body.appendChild(tip);
+    setTimeout(()=>tip.remove(),4000);
+  },
+
   _resetarDados(){
-    if(!confirm('⚠️ ATENÇÃO!\n\nIsso apagará TODOS os dados do sistema (efetivo, processos, avisos, tokens, logs).\n\nDeseja continuar?'))return;
+    if(!confirm('⚠️ ATENÇÃO!\n\nIsso apagará TODOS os dados do sistema (efetivo, processos, avisos, tokens, senhas PIN, logs).\n\nDeseja continuar?'))return;
     if(!confirm('Tem certeza absoluta? Esta ação não pode ser desfeita!'))return;
     DB.del('efetivo');DB.del('escala');DB.del('processos');
-    DB.del('avisos');DB.del('logs');DB.del('tokens');DB.del('BOOT');
+    DB.del('avisos');DB.del('logs');DB.del('tokens');DB.del('pins');DB.del('BOOT');
     DB.init();
     alert('Sistema resetado para os dados iniciais.');
     Render.admin();
@@ -1801,6 +2000,16 @@ document.addEventListener('DOMContentLoaded',()=>{
   // Enter no login
   ['l-rg','l-tok'].forEach(id=>{
     document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')Auth.login();});
+  });
+  // Enter na criação de PIN
+  ['pa-pin1','pa-pin2'].forEach(id=>{
+    document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')Auth.confirmarPin();});
+  });
+  // Garantir que apenas números sejam aceitos nos campos de PIN
+  ['pa-pin1','pa-pin2'].forEach(id=>{
+    document.getElementById(id).addEventListener('input',function(){
+      this.value=this.value.replace(/\D/g,'').slice(0,6);
+    });
   });
 
   // Restaurar sessão
