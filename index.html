@@ -140,7 +140,7 @@ a{text-decoration:none;color:inherit}
   display:flex;align-items:center;justify-content:center}
 .tb-date{font-size:10px;color:var(--muted)}
 
-#content{flex:1;overflow-y:auto;padding:18px}
+#content{flex:1;overflow-y:auto;padding:18px;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
 .screen{display:none}
 .screen.active{display:block}
 
@@ -255,7 +255,8 @@ tr:hover td{background:var(--hover)}
 
 /* ── MODAL ── */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;
-  align-items:center;justify-content:center;padding:18px}
+  align-items:center;justify-content:center;
+  padding:18px 18px calc(18px + env(safe-area-inset-bottom)) 18px}
 .overlay.open{display:flex}
 .modal{background:var(--card);border-radius:16px;padding:22px;width:100%;max-width:480px;
   box-shadow:0 25px 50px rgba(0,0,0,.35);max-height:90vh;overflow-y:auto}
@@ -444,7 +445,7 @@ tr:hover td{background:var(--hover)}
   #sidebar.open{left:0;box-shadow:6px 0 24px rgba(0,0,0,.5)}
   .sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:199}
   .sb-overlay.open{display:block}
-  #content{padding:12px}
+  #content{padding:12px 12px calc(12px + env(safe-area-inset-bottom)) 12px}
   .plan-week{grid-template-columns:repeat(7,1fr);gap:3px}
   .mini-stat-row{grid-template-columns:repeat(3,1fr)}
   #tb-clock-date,#tb-clock-semana{display:none}
@@ -560,7 +561,7 @@ body.dark .perfil-stat b{color:#8AB4FF}
 .drw-ttl{font-size:14px;font-weight:800;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .drw-x{width:32px;height:32px;border-radius:8px;background:var(--hover);border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;transition:background .12s}
 .drw-x:hover{background:var(--border);color:var(--text)}
-.drw-body{flex:1;overflow-y:auto;padding:12px 14px}
+.drw-body{flex:1;overflow-y:auto;padding:12px 14px;padding-bottom:calc(14px + env(safe-area-inset-bottom))}
 .drw-search{width:100%;padding:7px 11px;border:1px solid var(--border);border-radius:8px;background:var(--hover);color:var(--text);font-size:11px;margin-bottom:10px;outline:none;box-sizing:border-box}
 .drw-search:focus{border-color:var(--az)}
 .drw-sum{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap}
