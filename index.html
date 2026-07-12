@@ -550,6 +550,34 @@ body.dark .perfil-stat b{color:#8AB4FF}
 .perfil-item .pi-ico{font-size:20px}
 .perfil-item.danger{color:#DC2626;border-color:rgba(220,38,38,.3)}
 
+/* ── DRAWER KPI ─────────────────────────────────────────── */
+#drw-overlay{position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:900;opacity:0;pointer-events:none;transition:opacity .22s}
+#drw-overlay.open{opacity:1;pointer-events:all}
+#drw-panel{position:fixed;top:0;right:-440px;width:420px;max-width:96vw;height:100%;background:var(--card);border-left:1px solid var(--border);z-index:901;display:flex;flex-direction:column;transition:right .28s cubic-bezier(.4,0,.2,1);box-shadow:-6px 0 28px rgba(0,0,0,.18)}
+#drw-overlay.open #drw-panel{right:0}
+.drw-head{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px;flex-shrink:0}
+.drw-ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
+.drw-ttl{font-size:14px;font-weight:800;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.drw-x{width:32px;height:32px;border-radius:8px;background:var(--hover);border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;transition:background .12s}
+.drw-x:hover{background:var(--border);color:var(--text)}
+.drw-body{flex:1;overflow-y:auto;padding:12px 14px}
+.drw-search{width:100%;padding:7px 11px;border:1px solid var(--border);border-radius:8px;background:var(--hover);color:var(--text);font-size:11px;margin-bottom:10px;outline:none;box-sizing:border-box}
+.drw-search:focus{border-color:var(--az)}
+.drw-sum{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap}
+.drw-s{padding:5px 10px;border-radius:7px;font-size:11px;font-weight:700;background:var(--hover);border:1px solid var(--border);color:var(--text);white-space:nowrap}
+.drw-row{padding:8px 10px;border-radius:8px;border-left:3px solid transparent;margin-bottom:4px;background:var(--hover);transition:background .1s;cursor:default}
+.drw-row:hover{background:var(--border)}
+.drw-row-nm{font-size:12px;font-weight:700;color:var(--text)}
+.drw-row-sub{font-size:10px;color:var(--muted);margin-top:1px}
+.drw-sec{font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--muted);margin:10px 0 5px;text-transform:uppercase}
+.drw-empty{text-align:center;padding:30px 0;color:var(--muted);font-size:12px}
+.stat-card.clickable{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s}
+.stat-card.clickable:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.13);border-color:var(--az)}
+.stat-card.clickable:active{transform:none}
+.stat-card.clickable .stat-ico::after{content:'›';position:absolute;font-size:16px;font-weight:900;opacity:0;transition:opacity .15s;color:var(--az)}
+.stat-card.clickable:hover .stat-ico{position:relative}
+@media(max-width:600px){#drw-panel{width:100%;max-width:100%;right:-100%}}
+
 </style>
 </head>
 <body>
@@ -676,6 +704,20 @@ body.dark .perfil-stat b{color:#8AB4FF}
       <div id="s-admin"     class="screen"></div>
       <div id="s-perfil"    class="screen"></div>
     </main>
+
+    <!-- ── DRAWER KPI GLOBAL ── -->
+    <div id="drw-overlay" onclick="Drawer.close()">
+      <div id="drw-panel" onclick="event.stopPropagation()">
+        <div class="drw-head">
+          <div class="drw-ico" id="drw-ico"></div>
+          <div class="drw-ttl" id="drw-ttl">Detalhamento</div>
+          <button class="drw-x" onclick="Drawer.close()" title="Fechar">✕</button>
+        </div>
+        <div class="drw-body" id="drw-body">
+          <div class="drw-empty">Carregando...</div>
+        </div>
+      </div>
+    </div>
 
     <!-- Barra inferior (modo membro / mobile) -->
     <nav id="bottom-nav"></nav>
@@ -1213,16 +1255,265 @@ function escHtml(v){
   if(v===null||v===undefined) return '';
   return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function statCard(ico,lbl,val,cor,sub){
-  return `<div class="stat-card">
+function statCard(ico,lbl,val,cor,sub,drawerKey){
+  const click=drawerKey?`onclick="Drawer.open('${drawerKey}')" tabindex="0" role="button" title="Ver detalhes de ${lbl}"`:'';
+  const cls=drawerKey?'stat-card clickable':'stat-card';
+  return `<div class="${cls}" ${click}>
     <div class="stat-ico" style="background:${cor}22">${ico}</div>
     <div>
       <div class="stat-val" style="color:${cor}">${val}</div>
       <div class="stat-lbl">${lbl}</div>
       ${sub?`<div class="stat-sub">${sub}</div>`:''}
     </div>
+    ${drawerKey?`<div style="margin-left:auto;font-size:16px;color:${cor};opacity:.45">›</div>`:''}
   </div>`;
 }
+// ════════════════════════════════════════════
+// DRAWER KPI — painel lateral de detalhamento
+// ════════════════════════════════════════════
+const Drawer={
+  _cur:null,
+  open(type){
+    this._cur=type;
+    const ov=document.getElementById('drw-overlay');
+    ov.classList.add('open');
+    document.body.style.overflow='hidden';
+    this._render(type);
+  },
+  close(){
+    document.getElementById('drw-overlay').classList.remove('open');
+    document.body.style.overflow='';
+    this._cur=null;
+  },
+  _render(type){
+    const cfg={
+      efetivo: {ico:'👥',cor:'#1B3A6B',ttl:'Efetivo Total'},
+      presentes:{ico:'✅',cor:'#166534',ttl:'Presentes Hoje'},
+      ausentes: {ico:'⏸️',cor:'#DC2626',ttl:'Ausentes Hoje'},
+      processos:{ico:'📋',cor:'#1E40AF',ttl:'Processos Ativos'},
+      sei:      {ico:'🔗',cor:'#C8991A',ttl:'SEI DIGITAL COE'},
+      avisos:   {ico:'🔔',cor:'#DC2626',ttl:'Avisos'},
+    }[type]||{ico:'📊',cor:'#1B3A6B',ttl:'Detalhamento'};
+    const ico=document.getElementById('drw-ico');
+    ico.textContent=cfg.ico;
+    ico.style.background=cfg.cor+'22';
+    document.getElementById('drw-ttl').textContent=cfg.ttl;
+    document.getElementById('drw-body').innerHTML=this._content(type);
+  },
+  _content(type){
+    const ef=DB.get('efetivo')||[];
+    const agora=new Date();
+    // calcula status hoje igual ao dashboard
+    const diasAtual=calcSemana(0);
+    const idxHoje=diasAtual.findIndex(d=>d.hoje);
+    const chaveAtual=chaveDeData(diasAtual[0].jsDate);
+    const statusHoje=ef.map(m=>{
+      const arr=Escala.getStatusByKey(m.rg,chaveAtual);
+      const st=idxHoje>=0?arr[idxHoje]:'SERVIÇO';
+      return{m,st};
+    });
+    const presentes=statusHoje.filter(({st})=>st==='SERVIÇO');
+    const ausentes=statusHoje.filter(({st})=>st!=='SERVIÇO');
+
+    if(type==='efetivo'){
+      const org=ef.filter(e=>!e.adido);
+      const adidos=ef.filter(e=>e.adido);
+      // por posto: agrupar
+      const porPosto={};
+      ef.forEach(m=>{porPosto[m.posto]=(porPosto[m.posto]||0)+1;});
+      return`
+      <div class="drw-sum">
+        <div class="drw-s" style="border-color:#1B3A6B55;color:#1B3A6B">Total: ${ef.length}</div>
+        <div class="drw-s" style="border-color:#16A34A55;color:#166534">Orgânicos: ${org.length}</div>
+        <div class="drw-s" style="border-color:#D9770655;color:#92400E">Adidos: ${adidos.length}</div>
+      </div>
+      <input class="drw-search" placeholder="🔍 Pesquisar militar..." oninput="Drawer._filter(this,'drw-list-ef')">
+      <div id="drw-list-ef">
+        <div class="drw-sec">Por Posto/Graduação</div>
+        ${Object.entries(porPosto).sort((a,b)=>b[1]-a[1]).map(([p,n])=>`
+        <div class="drw-row" style="border-left-color:#1B3A6B;display:flex;justify-content:space-between;align-items:center">
+          <div class="drw-row-nm">${escHtml(p)}</div>
+          <span class="pill pill-and">${n}</span>
+        </div>`).join('')}
+        <div class="drw-sec">Efetivo Completo</div>
+        ${ef.map(m=>{
+          const {st}=statusHoje.find(s=>s.m.rg===m.rg)||{st:'SERVIÇO'};
+          const sc=ST_CFG[st]||{cls:'',borda:'#888'};
+          return`<div class="drw-row" style="border-left-color:${sc.borda||'#888'}" data-search="${m.nome.toLowerCase()} ${m.posto.toLowerCase()}">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div class="drw-row-nm">${escHtml(m.nome)}</div>
+                <div class="drw-row-sub">${escHtml(m.posto)}${m.adido?' · ADIDO':''} · RG ${m.rg}</div>
+              </div>
+              <span class="pill ${sc.cls||''}">${st}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    if(type==='presentes'){
+      return`
+      <div class="drw-sum">
+        <div class="drw-s" style="border-color:#16A34A55;color:#166534">Em Serviço: ${presentes.length}</div>
+        <div class="drw-s" style="border-color:#1B3A6B55;color:#1B3A6B">Total Efetivo: ${ef.length}</div>
+      </div>
+      <input class="drw-search" placeholder="🔍 Pesquisar..." oninput="Drawer._filter(this,'drw-list-pres')">
+      ${presentes.length===0?'<div class="drw-empty">Nenhum militar em serviço hoje.</div>':''}
+      <div id="drw-list-pres">
+        ${presentes.map(({m})=>`
+        <div class="drw-row" style="border-left-color:#16A34A" data-search="${m.nome.toLowerCase()} ${m.posto.toLowerCase()}">
+          <div class="drw-row-nm">${escHtml(m.nome)}</div>
+          <div class="drw-row-sub">${escHtml(m.posto)}${m.adido?' · ADIDO':''} · RG ${m.rg}</div>
+        </div>`).join('')}
+      </div>`;
+    }
+
+    if(type==='ausentes'){
+      // agrupar por status
+      const grupos={};
+      ausentes.forEach(({m,st})=>{if(!grupos[st])grupos[st]=[];grupos[st].push(m);});
+      return`
+      <div class="drw-sum">
+        <div class="drw-s" style="border-color:#DC262655;color:#DC2626">Ausentes: ${ausentes.length}</div>
+        ${Object.entries(grupos).map(([st,ms])=>{
+          const sc=ST_CFG[st]||{};
+          return`<div class="drw-s" style="border-color:${sc.borda||'#888'}55;color:${sc.cor||'#888'}">${st}: ${ms.length}</div>`;
+        }).join('')}
+      </div>
+      <input class="drw-search" placeholder="🔍 Pesquisar..." oninput="Drawer._filter(this,'drw-list-aus')">
+      ${ausentes.length===0?'<div class="drw-empty">Todos em serviço hoje! ✅</div>':''}
+      <div id="drw-list-aus">
+        ${Object.entries(grupos).map(([st,ms])=>{
+          const sc=ST_CFG[st]||{cls:'',borda:'#888'};
+          return`<div class="drw-sec">${st} (${ms.length})</div>`+
+          ms.map(m=>`<div class="drw-row" style="border-left-color:${sc.borda||'#888'}" data-search="${m.nome.toLowerCase()} ${m.posto.toLowerCase()} ${st.toLowerCase()}">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+                <div class="drw-row-nm">${escHtml(m.nome)}</div>
+                <div class="drw-row-sub">${escHtml(m.posto)} · RG ${m.rg}</div>
+              </div>
+              <span class="pill ${sc.cls||''}">${st}</span>
+            </div>
+          </div>`).join('');
+        }).join('')}
+      </div>`;
+    }
+
+    if(type==='processos'){
+      const proc=DB.get('processos')||[];
+      const pend=proc.filter(p=>p.status!=='CONCLUÍDO');
+      const conc=proc.filter(p=>p.status==='CONCLUÍDO');
+      return`
+      <div class="drw-sum">
+        <div class="drw-s" style="border-color:#1E40AF55;color:#1E40AF">Pendentes: ${pend.length}</div>
+        <div class="drw-s" style="border-color:#16A34A55;color:#166534">Concluídos: ${conc.length}</div>
+        <div class="drw-s">Total: ${proc.length}</div>
+      </div>
+      <input class="drw-search" placeholder="🔍 Pesquisar processo..." oninput="Drawer._filter(this,'drw-list-proc')">
+      <div id="drw-list-proc">
+        ${pend.length===0?'<div class="drw-empty">Nenhum processo pendente.</div>':'<div class="drw-sec">Pendentes</div>'}
+        ${pend.map(p=>{const c=PR_CFG[p.status]||{};return`
+        <div class="drw-row" style="border-left-color:${c.cor||'#888'};cursor:pointer" onclick="Drawer.close();Nav.go('processos')" data-search="${p.numero.toLowerCase()} ${p.assunto.toLowerCase()} ${p.resp.toLowerCase()}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+            <div style="min-width:0">
+              <div class="drw-row-nm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.assunto)}</div>
+              <div class="drw-row-sub">${escHtml(p.numero)} · ${escHtml(p.resp)}</div>
+              <div class="drw-row-sub">⏰ ${escHtml(p.prazo)}</div>
+            </div>
+            <span class="pill ${c.cls||''}" style="flex-shrink:0">${escHtml(p.status)}</span>
+          </div>
+        </div>`}).join('')}
+        ${conc.length>0?`<div class="drw-sec" style="margin-top:8px">Concluídos</div>`:''}
+        ${conc.map(p=>`
+        <div class="drw-row" style="border-left-color:#16A34A;opacity:.65" data-search="${p.numero.toLowerCase()} ${p.assunto.toLowerCase()}">
+          <div class="drw-row-nm">${escHtml(p.assunto)}</div>
+          <div class="drw-row-sub">${escHtml(p.numero)} · ${escHtml(p.prazo)}</div>
+        </div>`).join('')}
+      </div>`;
+    }
+
+    if(type==='sei'){
+      const seiP=getSeiProcs();
+      const pend=seiP.filter(p=>p.status!=='CONCLUÍDO');
+      const conc=seiP.filter(p=>p.status==='CONCLUÍDO');
+      return`
+      <div class="drw-sum">
+        <div class="drw-s" style="border-color:#C8991A55;color:#C8991A">Total SEI: ${seiP.length}</div>
+        <div class="drw-s" style="border-color:#DC262655;color:#DC2626">Pendentes: ${pend.length}</div>
+        <div class="drw-s" style="border-color:#16A34A55;color:#166534">Concluídos: ${conc.length}</div>
+      </div>
+      <input class="drw-search" placeholder="🔍 Pesquisar SEI..." oninput="Drawer._filter(this,'drw-list-sei')">
+      <div id="drw-list-sei">
+        ${seiP.length===0?'<div class="drw-empty">Nenhum processo SEI sincronizado.</div>':''}
+        ${pend.length>0?'<div class="drw-sec">Pendentes SEI COE</div>':''}
+        ${pend.map(p=>{
+          const d=_diasPrazo(p.prazo);
+          const cor=d===null?'#888':d<0?'#DC2626':d<=3?'#EA580C':'#D97706';
+          return`<div class="drw-row" style="border-left-color:${cor}" data-search="${p.numero.toLowerCase()} ${p.assunto.toLowerCase()}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+              <div style="min-width:0">
+                <div class="drw-row-nm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.assunto)}</div>
+                <div class="drw-row-sub">${escHtml(p.numero)}</div>
+                ${d!==null?`<div class="drw-row-sub" style="color:${cor}">${d<0?'VENCIDO há '+(Math.abs(d))+'d':'Vence em '+d+'d'}</div>`:''}
+              </div>
+              ${_prazoPill(p.prazo,p.status)}
+            </div>
+          </div>`;
+        }).join('')}
+        ${conc.length>0?`<div class="drw-sec" style="margin-top:8px">Concluídos</div>`:''}
+        ${conc.map(p=>`
+        <div class="drw-row" style="border-left-color:#16A34A;opacity:.65" data-search="${p.numero.toLowerCase()} ${p.assunto.toLowerCase()}">
+          <div class="drw-row-nm">${escHtml(p.assunto)}</div>
+          <div class="drw-row-sub">${escHtml(p.numero)}</div>
+        </div>`).join('')}
+      </div>`;
+    }
+
+    if(type==='avisos'){
+      const av=DB.get('avisos')||[];
+      const nLidos=av.filter(a=>!a.lido);
+      const lidos=av.filter(a=>a.lido);
+      return`
+      <div class="drw-sum">
+        <div class="drw-s" style="border-color:#DC262655;color:#DC2626">Não lidos: ${nLidos.length}</div>
+        <div class="drw-s">Total: ${av.length}</div>
+      </div>
+      <input class="drw-search" placeholder="🔍 Pesquisar aviso..." oninput="Drawer._filter(this,'drw-list-av')">
+      <div id="drw-list-av">
+        ${nLidos.length===0&&lidos.length===0?'<div class="drw-empty">Nenhum aviso cadastrado.</div>':''}
+        ${nLidos.length>0?'<div class="drw-sec">Não Lidos</div>':''}
+        ${nLidos.map(a=>{const c=AV_CFG[a.prio]||AV_CFG.NORMAL;return`
+        <div class="drw-row" style="border-left-color:${c.borda};cursor:pointer" onclick="Drawer.close();Nav.go('avisos')" data-search="${a.titulo.toLowerCase()} ${a.autor.toLowerCase()}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+            <div style="flex:1;min-width:0">
+              <div class="drw-row-nm">${escHtml(a.titulo)}</div>
+              <div class="drw-row-sub">${escHtml(a.autor)} · ${escHtml(a.data)}</div>
+            </div>
+            <span class="pill pill-alta" style="font-size:8px;flex-shrink:0">NOVO</span>
+          </div>
+        </div>`;}).join('')}
+        ${lidos.length>0?`<div class="drw-sec" style="margin-top:8px">Lidos</div>`:''}
+        ${lidos.map(a=>{const c=AV_CFG[a.prio]||AV_CFG.NORMAL;return`
+        <div class="drw-row" style="border-left-color:${c.borda};opacity:.65;cursor:pointer" onclick="Drawer.close();Nav.go('avisos')" data-search="${a.titulo.toLowerCase()} ${a.autor.toLowerCase()}">
+          <div class="drw-row-nm">${escHtml(a.titulo)}</div>
+          <div class="drw-row-sub">${escHtml(a.autor)} · ${escHtml(a.data)}</div>
+        </div>`;}).join('')}
+      </div>`;
+    }
+    return`<div class="drw-empty">Tipo não reconhecido.</div>`;
+  },
+  _filter(inp,listId){
+    const q=inp.value.toLowerCase().trim();
+    const rows=document.getElementById(listId)?.querySelectorAll('[data-search]')||[];
+    rows.forEach(r=>{
+      r.style.display=!q||r.dataset.search.includes(q)?'':'none';
+    });
+  }
+};
+// Fechar drawer com ESC
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&Drawer._cur)Drawer.close();});
+
 // ════════════════════════════════════════════
 // HELPER: Gestão de Escala por Semana
 // ════════════════════════════════════════════
@@ -1854,12 +2145,12 @@ const Render={
 
       <!-- Cards Resumo -->
       <div class="stat-grid" style="margin-bottom:16px">
-        ${statCard('👥','Efetivo Total',ef.length,'#1B3A6B',`${ef.filter(e=>!e.adido).length} org · ${ef.filter(e=>e.adido).length} adidos`)}
-        ${statCard('✅','Presentes Hoje',presentes.length,'#166534',`de ${ef.length} militares`)}
-        ${statCard('⏸️','Ausentes Hoje',ausentes.length,'#DC2626',ausentes.length>0?ausentes.map(a=>ST_CFG[a.st]?.abr||a.st).slice(0,3).join(', '):'')}
-        ${statCard('📋','Processos Ativos',pend+seiPend,'#1E40AF',seiProc.length>0?`${pend} locais · ${seiPend} SEI COE`:'')}
-        ${statCard('🔗','SEI DIGITAL COE',seiProc.length,'#C8991A',seiPend>0?`${seiPend} pendente(s)`:'sincronizado ✓')}
-        ${statCard('🔔','Avisos Não Lidos',nl,'#DC2626','')}
+        ${statCard('👥','Efetivo Total',ef.length,'#1B3A6B',`${ef.filter(e=>!e.adido).length} org · ${ef.filter(e=>e.adido).length} adidos`,'efetivo')}
+        ${statCard('✅','Presentes Hoje',presentes.length,'#166534',`de ${ef.length} militares`,'presentes')}
+        ${statCard('⏸️','Ausentes Hoje',ausentes.length,'#DC2626',ausentes.length>0?ausentes.map(a=>ST_CFG[a.st]?.abr||a.st).slice(0,3).join(', '):''  ,'ausentes')}
+        ${statCard('📋','Processos Ativos',pend+seiPend,'#1E40AF',seiProc.length>0?`${pend} locais · ${seiPend} SEI COE`:''  ,'processos')}
+        ${statCard('🔗','SEI DIGITAL COE',seiProc.length,'#C8991A',seiPend>0?`${seiPend} pendente(s)`:'sincronizado ✓','sei')}
+        ${statCard('🔔','Avisos Não Lidos',nl,'#DC2626','','avisos')}
       </div>
 
       ${criticos.length>0?`
