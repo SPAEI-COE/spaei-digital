@@ -823,6 +823,12 @@ body.member-mode #bottom-nav{display:flex}
       <div class="login-title">SPAEI DIGITAL</div>
       <div class="login-sub">COE — PMERJ</div>
       <div class="login-ver">SISTEMA DE GESTÃO OPERACIONAL v5.10</div>
+      <div id="fb-status-login" class="connecting" title="Status de sincronização Firebase"
+        style="display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:700;
+        padding:3px 10px;border-radius:20px;margin-top:8px">
+        <span style="width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block"></span>
+        <span id="fb-status-login-txt">Conectando…</span>
+      </div>
     </div>
 
     <!-- ── FORMULÁRIO PRINCIPAL ── -->
@@ -1018,6 +1024,12 @@ function _fbStatus(estado, txt){
   const tx=document.getElementById('fb-status-txt');
   if(el){ el.className=''; el.classList.add(estado); }
   if(tx) tx.textContent=txt;
+  // Espelha o status na tela de login (visível antes da autenticação)
+  const elL=document.getElementById('fb-status-login');
+  const txL=document.getElementById('fb-status-login-txt');
+  if(elL){ elL.className=''; elL.classList.add(estado);
+    elL.style.cssText='display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:700;padding:3px 10px;border-radius:20px;margin-top:8px'; }
+  if(txL) txL.textContent=txt;
 }
 
 const DB={
