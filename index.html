@@ -392,10 +392,10 @@ tr:hover td{background:var(--hover)}
 /* ── FIREBASE STATUS ── */
 #fb-status{display:flex;align-items:center;gap:5px;font-size:9px;font-weight:700;
   padding:3px 8px;border-radius:20px;letter-spacing:.3px;transition:all .3s}
-#fb-status.online{background:rgba(0,200,122,0.1);color:#00C87A;border:1px solid rgba(0,200,122,0.25)}
-#fb-status.offline{background:rgba(255,140,0,0.1);color:#FF8C00;border:1px solid rgba(255,140,0,0.25)}
-#fb-status.connecting{background:rgba(26,95,255,0.1);color:var(--cyan);border:1px solid rgba(26,95,255,0.25)}
-#fb-status.config{background:rgba(255,61,61,0.1);color:#FF3D3D;border:1px solid rgba(255,61,61,0.25)}
+#fb-status.online,#fb-status-login.online{background:rgba(0,200,122,0.1);color:#00C87A;border:1px solid rgba(0,200,122,0.25)}
+#fb-status.offline,#fb-status-login.offline{background:rgba(255,140,0,0.1);color:#FF8C00;border:1px solid rgba(255,140,0,0.25)}
+#fb-status.connecting,#fb-status-login.connecting{background:rgba(26,95,255,0.1);color:var(--cyan);border:1px solid rgba(26,95,255,0.25)}
+#fb-status.config,#fb-status-login.config{background:rgba(255,61,61,0.1);color:#FF3D3D;border:1px solid rgba(255,61,61,0.25)}
 .fb-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 #fb-status.online .fb-dot{background:#00C87A;animation:pulseGreen 1.5s infinite}
 #fb-status.offline .fb-dot{background:#FF8C00}
