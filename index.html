@@ -835,7 +835,7 @@ body.member-mode #bottom-nav{display:flex}
         <label class="lbl" id="l-senha-lbl">SENHA / TOKEN DE ACESSO</label>
         <input id="l-tok" class="linp" type="password" placeholder="••••••••" maxlength="12">
         <div id="l-tok-hint" style="color:#4A6080;font-size:9px;margin-top:5px;letter-spacing:.3px">
-          ⭐ ADM: token gerado pelo administrador &nbsp;·&nbsp; 👤 Membros: senha de 6 dígitos
+          ⭐ ADM: Token COE2026 (1º acesso) &nbsp;·&nbsp; 👤 Membros: senha de 6 dígitos
         </div>
       </div>
       <div id="l-err" class="lerr">⚠️ <span id="l-errmsg"></span></div>
@@ -867,7 +867,7 @@ body.member-mode #bottom-nav{display:flex}
     </div>
 
     <div class="lhint">ACESSO RESTRITO A MILITARES AUTORIZADOS · SPAEI/COE-PMERJ<br>
-      <span>ADM: RG + Token · Membros: RG + Senha de 6 dígitos</span></div>
+      <span>ADM: RG + Token COE2026 (1º acesso) ou Senha Pessoal · Membros: RG + Senha de 6 dígitos</span></div>
   </div>
 </div>
 
@@ -2084,12 +2084,9 @@ const Auth={
         if(hSenhaPura===RESGATE_HASH){
           delete admSenhas[rg];
           DB.set('admSenhas',admSenhas);
-          const tokens=DB.get('tokens')||{};
-          tokens[rg]={hash:'placeholder',salt:'bootstrap',criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
-          DB.set('tokens',tokens);
           const logsR=DB.get('logs')||[];
           logsR.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-            tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg}) — senha pessoal revogada, novo token de ativação liberado`});
+            tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg}) — senha pessoal revogada, volta a valer o Token de Acesso (COE2026)`});
           DB.set('logs',logsR.slice(0,200));
           btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';
           this.showCriarSenhaAdm(militar);
@@ -2105,52 +2102,28 @@ const Auth={
         return;
       }
 
-      // ── SEM SENHA PESSOAL AINDA: precisa validar o Token de ativação ──
+      // ── SEM SENHA PESSOAL AINDA: Token de Acesso fixo COE2026 (igual para todos os ADMs) ──
       if(!senha){
-        this.showErr('Informe o Token de Acesso.');
+        this.showErr('Informe o Token de Acesso (COE2026).');
         btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
       }
-      const tokens=DB.get('tokens')||{};
-      const td=tokens[rg];
-      let valido=false;
-      let usouResgate=false;
-
-      // ── TOKEN MESTRE DE RESGATE (recuperação de acesso ADM) ──
-      // Se o token normal for perdido, o ADM pode entrar com o token de resgate.
-      // hash = sha256('SPAEI-RESGATE-2026')
       const RESGATE_HASH='054a731d14e43661c115e3478716fb5c51e609405990c56e3e42bf87a399e117';
       const hSenhaPura=await sha256(senha);
-      if(hSenhaPura===RESGATE_HASH){ valido=true; usouResgate=true; }
+      const usouResgate=(hSenhaPura===RESGATE_HASH);
+      const valido=(senha==='COE2026')||usouResgate;
 
       if(!valido){
-        if(td){
-          if(td.salt==='bootstrap'){
-            valido=(senha==='COE2026'||senha===rg);
-          } else {
-            const h=await sha256(td.salt+senha);
-            valido=(h===td.hash&&td.ativo);
-          }
-        } else {
-          // Sem token cadastrado (dados incompletos/reset): aceita credenciais de instalação
-          valido=(senha==='COE2026'||senha===rg);
-        }
-      }
-      if(!valido){
-        this.showErr('Token inválido ou expirado. Use o token de resgate ou contate o administrador.');
+        this.showErr('Token inválido. Use o Token de Acesso (COE2026) ou contate o administrador.');
         btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
       }
-      // Após resgate: restaura o token para o padrão de instalação para permitir regeneração
       if(usouResgate){
-        tokens[rg]={hash:'placeholder',salt:'bootstrap',criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
-        DB.set('tokens',tokens);
         const logsR=DB.get('logs')||[];
         logsR.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-          tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg}) — token restaurado para padrão`});
+          tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg})`});
         DB.set('logs',logsR.slice(0,200));
       }
 
       // Token validado, mas ainda sem senha pessoal própria: obriga a criá-la agora.
-      // A partir daqui, quem gerou/entregou o token deixa de ter acesso como este ADM.
       btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';
       this.showCriarSenhaAdm(militar);
       return;
@@ -2218,7 +2191,7 @@ const Auth={
   showCriarSenhaAdm(militar){
     this._pendingIsAdmin=true;
     document.getElementById('pa-title').textContent='CRIAR SENHA PESSOAL';
-    document.getElementById('pa-subtitle').textContent='Token validado! Defina sua senha pessoal e exclusiva de 6 dígitos — a partir de agora, só você a conhece';
+    document.getElementById('pa-subtitle').textContent='Defina sua senha pessoal e exclusiva de 6 dígitos — a partir de agora, só você a conhece';
     document.getElementById('main-login-form').style.display='none';
     const pa=document.getElementById('primeiro-acesso');
     pa.style.display='flex';
@@ -2256,13 +2229,9 @@ const Auth={
       admSenhas[rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
       DB.set('admSenhas',admSenhas);
 
-      // Consome o token de ativação: ele não pode mais ser reutilizado por quem o gerou/entregou
-      const tokens=DB.get('tokens')||{};
-      if(tokens[rg]){ tokens[rg].ativo=false; DB.set('tokens',tokens); }
-
       const logs=DB.get('logs')||[];
       logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-        tipo:'ADM_SENHA',desc:`Senha pessoal criada pelo próprio ADM: ${this._pendingMilitar.posto} ${this._pendingMilitar.nome} (RG ${rg}) — token de ativação consumido`});
+        tipo:'ADM_SENHA',desc:`Senha pessoal criada pelo próprio ADM: ${this._pendingMilitar.posto} ${this._pendingMilitar.nome} (RG ${rg})`});
       DB.set('logs',logs.slice(0,200));
     } else {
       const pins=DB.get('pins')||{};
@@ -3941,7 +3910,9 @@ const Render={
             <div style="display:flex;gap:4px">
               <button class="btn btn-ghost btn-sm" title="Editar (pode tornar membro ou excluir)" onclick="Render._editMembro(${m.id})">✏️</button>
               ${(m.admin||m.chefe)
-                ?`<button class="btn btn-ghost btn-sm" title="Gerar Token ADM" onclick="Render._gerarToken('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#B45309">🔑</button>`
+                ?((DB.get('admSenhas')||{})[m.rg]
+                  ?`<button class="btn btn-ghost btn-sm" title="Resetar senha pessoal do ADM" onclick="Render._resetarSenhaAdm('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#B45309">🔐</button>`
+                  :`<button class="btn btn-ghost btn-sm" title="Aguardando 1º acesso (Token COE2026)" style="color:#CBD5E1;cursor:default">🔓</button>`)
                 :(DB.get('pins')||{})[m.rg]
                   ?`<button class="btn btn-ghost btn-sm" title="Resetar senha do membro" onclick="Render._resetarPin('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#166534">🔐</button>`
                   :`<button class="btn btn-ghost btn-sm" title="Aguardando 1º acesso" style="color:#CBD5E1;cursor:default">🔓</button>`}
@@ -3975,7 +3946,6 @@ const Render={
           </table></div>
         </div>`;
     } else if(tab==='tokens'){
-      const toks=DB.get('tokens')||{};
       const pins=DB.get('pins')||{};
       const admSenhas=DB.get('admSenhas')||{};
       const ef=DB.get('efetivo')||[];
@@ -3985,23 +3955,14 @@ const Render={
       const secTitle=(txt,cor)=>`<div style="font-size:11px;font-weight:700;color:${cor};letter-spacing:1px;padding:10px 14px 6px;background:var(--thead);border-bottom:1px solid var(--border);margin-top:10px;border-radius:8px 8px 0 0">${txt}</div>`;
 
       const admHTML=admins.length===0?'':`
-        ${secTitle('⭐ ADMINISTRADORES — TOKEN DE ATIVAÇÃO + SENHA PESSOAL','#B45309')}
+        ${secTitle('⭐ ADMINISTRADORES — SENHA PESSOAL','#B45309')}
         ${admins.map(m=>{
-          const td=toks[m.rg];
           const ad=admSenhas[m.rg];
           const temSenhaPessoal=ad&&ad.ativo;
-          const temTokenPendente=!temSenhaPessoal&&td&&td.ativo;
-          let statusHTML;
-          if(temSenhaPessoal){
-            statusHTML=`<div style="color:#166534;font-size:13px;font-weight:700;margin-top:3px">✅ Senha pessoal ativa — acesso só com RG + senha própria</div>
-                 <div class="tok-dt">Criada em: ${ad.criado}</div>`;
-          } else if(temTokenPendente){
-            statusHTML=`<div class="tok-val" style="font-size:15px">${td.salt==='bootstrap'?'COE2026':'••••••••'}</div>
-                 <div class="tok-dt">Token gerado em: ${td.criado}${td.salt==='bootstrap'?' · padrão bootstrap':''}</div>
-                 <div style="color:#D97706;font-size:11px;font-weight:700;margin-top:2px">⏳ Aguardando 1º acesso — vai criar a própria senha pessoal</div>`;
-          } else {
-            statusHTML=`<div style="color:#DC2626;font-size:11px;font-weight:700;margin-top:2px">⚠️ Sem token — não consegue acessar</div>`;
-          }
+          const statusHTML=temSenhaPessoal
+            ?`<div style="color:#166534;font-size:13px;font-weight:700;margin-top:3px">✅ Senha pessoal ativa — acesso só com RG + senha própria</div>
+                 <div class="tok-dt">Criada em: ${ad.criado}</div>`
+            :`<div style="color:#D97706;font-size:11px;font-weight:700;margin-top:2px">⏳ Ainda não criou senha pessoal — entra com RG + Token de Acesso (COE2026) e cria na hora</div>`;
           return`
         <div class="tok-card" style="border-radius:0;border-left:3px solid #D4A017">
           <div style="min-width:0;flex:1">
@@ -4009,8 +3970,7 @@ const Render={
             ${statusHTML}
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
-            <button class="btn btn-ghost btn-sm" onclick="Render._gerarToken('${m.rg}','${m.nome.split(' ')[0]}')" title="${temSenhaPessoal?'Gerar novo token (reseta a senha pessoal atual)':'Gerar novo token'}">🔑 ${temSenhaPessoal?'Resetar':'Gerar'}</button>
-            ${(td&&td.ativo)||temSenhaPessoal?`<button class="btn btn-danger btn-sm" onclick="Render._revogarToken('${m.rg}')" title="Revogar acesso (token + senha pessoal)">🗑️</button>`:''}
+            ${temSenhaPessoal?`<button class="btn btn-danger btn-sm" onclick="Render._resetarSenhaAdm('${m.rg}','${m.nome.split(' ')[0]}')" title="Apagar a senha pessoal (ele volta a entrar com COE2026 e cria outra)">🔄 Resetar</button>`:''}
           </div>
         </div>`}).join('')}`;
 
@@ -4030,24 +3990,23 @@ const Render={
           </div>
         </div>`}).join('')}`;
 
-      const bootstrapPend=admins.filter(m=>!(admSenhas[m.rg]&&admSenhas[m.rg].ativo)&&(toks[m.rg]||{}).salt==='bootstrap');
-      const avisoBootstrap=bootstrapPend.length?`
-      <div style="background:var(--vmcl);border:1px solid rgba(220,38,38,.4);border-radius:10px;
+      box.innerHTML=`<div style="background:var(--vmcl);border:1px solid rgba(220,38,38,.4);border-radius:10px;
         padding:12px 14px;font-size:12px;color:var(--vm);font-weight:700;margin-bottom:12px;display:flex;gap:8px;align-items:flex-start">
         <span>⚠️</span>
         <span style="font-weight:600">
-          ${bootstrapPend.length} conta(s) ainda usam o token padrão de instalação ("COE2026"), que fica visível
-          no código-fonte do sistema. Gere um token novo para: ${escHtml(bootstrapPend.map(m=>m.nome.split(' ')[0]).join(', '))}.
+          O Token de Acesso para 1º login de ADM é fixo (COE2026) e fica visível no código-fonte do sistema —
+          por isso, assim que possível, cada ADM deve entrar e criar sua própria senha pessoal.
         </span>
-      </div>`:'';
-      box.innerHTML=`${avisoBootstrap}<div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px">
+      </div>
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px">
         ${admHTML}${memHTML}
       </div>
       <div style="background:var(--azcl);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:11px;color:var(--muted)">
-        ℹ️ <b>ADMs</b>: o token gerado aqui serve só para o 1º acesso — ao entrar com ele, o próprio ADM cria uma
-        senha pessoal e exclusiva (o token perde a validade e quem o gerou/entregou deixa de ter acesso como ele).
-        Use "🔑 Resetar" para forçar a criação de uma nova senha (gera novo token de ativação). <b>Membros</b> criam
-        sua própria senha de 6 dígitos no primeiro acesso — você pode resetá-la se necessário.
+        ℹ️ <b>ADMs</b>: o Token de Acesso (COE2026) serve só até o 1º acesso — ao entrar com ele, o próprio ADM
+        cria sua senha pessoal, que passa a ser o único acesso dele (o próprio ADM troca essa senha depois em
+        Efetivo → Editar → 🔐 Trocar Minha Senha). Use "🔄 Resetar" para apagar a senha pessoal de alguém e
+        liberar o COE2026 de novo para ele. <b>Membros</b> criam sua própria senha de 6 dígitos no primeiro
+        acesso — você pode resetá-la se necessário.
       </div>`;
     } else if(tab==='logs'){
       const logs=DB.get('logs')||[];
@@ -4167,6 +4126,24 @@ const Render={
         </label>
       </div>
 
+      ${(m&&Auth.user&&m.rg===Auth.user.rg&&(m.admin||m.chefe))?`
+      <div style="margin:4px 0 14px;padding:12px 14px;background:var(--hover);border:1px solid var(--border);border-radius:10px">
+        <div style="font-size:11px;font-weight:700;color:#B45309;letter-spacing:.5px;margin-bottom:10px">🔐 TROCAR MINHA SENHA</div>
+        <div class="form-group"><label class="form-lbl">SENHA ATUAL</label>
+          <input class="form-inp" id="mb-senha-atual" type="password" maxlength="6" inputmode="numeric" pattern="[0-9]*"
+            placeholder="••••••" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,6)"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="form-group"><label class="form-lbl">NOVA SENHA</label>
+            <input class="form-inp" id="mb-senha-nova" type="password" maxlength="6" inputmode="numeric" pattern="[0-9]*"
+              placeholder="••••••" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,6)"></div>
+          <div class="form-group"><label class="form-lbl">CONFIRMAR NOVA</label>
+            <input class="form-inp" id="mb-senha-nova2" type="password" maxlength="6" inputmode="numeric" pattern="[0-9]*"
+              placeholder="••••••" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,6)"></div>
+        </div>
+        <div id="mb-senha-msg" style="display:none;font-size:11px;font-weight:700;margin:8px 0"></div>
+        <button class="btn btn-ghost" style="width:100%;color:#B45309;border-color:#B45309" onclick="Render._trocarSenhaPropria()">🔐 Trocar Senha</button>
+      </div>`:''}
+
       <div class="btn-row">
         <button class="btn btn-ghost" onclick="Modal.close()">Cancelar</button>
         <button class="btn btn-primary" onclick="${cbSalvar}">💾 Salvar</button>
@@ -4187,6 +4164,47 @@ const Render={
       l.style.background=sel?cores[p].bg:'var(--card)';
       l.querySelector('input').checked=sel;
     });
+  },
+
+  async _trocarSenhaPropria(){
+    const atual=document.getElementById('mb-senha-atual').value.trim();
+    const nova=document.getElementById('mb-senha-nova').value.trim();
+    const nova2=document.getElementById('mb-senha-nova2').value.trim();
+    const msgEl=document.getElementById('mb-senha-msg');
+    const showMsg=(txt,cor)=>{msgEl.textContent=txt;msgEl.style.color=cor;msgEl.style.display='block';};
+
+    const rg=Auth.user?.rg;
+    if(!rg)return;
+    const admSenhas=DB.get('admSenhas')||{};
+    const ad=admSenhas[rg];
+    if(!ad||!ad.ativo){
+      showMsg('⚠️ Você ainda não tem senha pessoal — saia e entre com RG + Token COE2026 para criar a primeira.','#DC2626');
+      return;
+    }
+    if(!atual){showMsg('⚠️ Informe sua senha atual.','#DC2626');return;}
+    if(!/^\d{6}$/.test(nova)){showMsg('⚠️ A nova senha deve ter exatamente 6 dígitos numéricos.','#DC2626');return;}
+    if(nova!==nova2){showMsg('⚠️ A nova senha e a confirmação não conferem.','#DC2626');return;}
+    if(nova===atual){showMsg('⚠️ A nova senha deve ser diferente da atual.','#DC2626');return;}
+
+    const hAtual=await sha256(ad.salt+atual);
+    if(hAtual!==ad.hash){showMsg('⚠️ Senha atual incorreta.','#DC2626');return;}
+
+    const salt=uid().slice(0,16);
+    const hash=await sha256(salt+nova);
+    admSenhas[rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
+    DB.set('admSenhas',admSenhas);
+
+    const logs=DB.get('logs')||[];
+    const u=Auth.user;
+    logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo:'ADM_SENHA',desc:`Senha pessoal alterada pelo próprio ADM: ${u.posto} ${u.nome} (RG ${rg})`});
+    DB.set('logs',logs.slice(0,200));
+
+    document.getElementById('mb-senha-atual').value='';
+    document.getElementById('mb-senha-nova').value='';
+    document.getElementById('mb-senha-nova2').value='';
+    showMsg('✅ Senha alterada com sucesso!','#166534');
+    Toast.success('🔐 Senha pessoal alterada com sucesso');
   },
 
   _addMembro(){
@@ -4257,15 +4275,10 @@ const Render={
     if(!m)return;
     if(m.rg===Auth.user?.rg){alert('Você não pode remover a si mesmo.');return;}
     const temPin=(DB.get('pins')||{})[m.rg];
-    const temTok=(DB.get('tokens')||{})[m.rg];
     const temAdmSenha=(DB.get('admSenhas')||{})[m.rg];
-    const avisoAcesso=temTok||temAdmSenha?' (token/senha pessoal revogados)':temPin?' (senha excluída)':'';
+    const avisoAcesso=temAdmSenha?' (senha pessoal excluída)':temPin?' (senha excluída)':'';
     if(!confirm(`Remover ${m.posto} ${m.nome} (RG ${m.rg}) do sistema?${avisoAcesso?'\n\n'+avisoAcesso.trim():''}`))return;
     DB.set('efetivo',ef.filter(e=>e.id!==id));
-    // Revogar token (ADMs)
-    const toks=DB.get('tokens')||{};
-    delete toks[m.rg];
-    DB.set('tokens',toks);
     // Excluir senha pessoal de ADM
     const admSenhas=DB.get('admSenhas')||{};
     delete admSenhas[m.rg];
@@ -4283,56 +4296,17 @@ const Render={
   },
 
 
-  async _gerarToken(rg,primeiroNome){
-    const admSenhas=DB.get('admSenhas')||{};
-    const jaTemSenhaPessoal=admSenhas[rg]&&admSenhas[rg].ativo;
-    if(jaTemSenhaPessoal){
-      if(!confirm(`${primeiroNome} já tem senha pessoal ativa.\n\nGerar um novo token vai REVOGAR a senha pessoal atual — ele precisará usar este novo token para criar uma senha pessoal nova no próximo acesso.\n\nContinuar?`))return;
-    }
-    const tok=randTok();
-    const salt=uid().slice(0,16);
-    const hash=await sha256(salt+tok);
-    const toks=DB.get('tokens')||{};
-    toks[rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
-    DB.set('tokens',toks);
-    // Um token novo sempre reabre o fluxo de "criar senha pessoal" — revoga a senha pessoal anterior, se houver
-    if(jaTemSenhaPessoal){
-      delete admSenhas[rg];
-      DB.set('admSenhas',admSenhas);
-    }
-    const logs=DB.get('logs')||[];
-    logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-      tipo:'TOKEN',desc:`Token gerado para RG ${rg} (${primeiroNome})${jaTemSenhaPessoal?' — senha pessoal anterior revogada':''}`});
-    DB.set('logs',logs.slice(0,200));
-    Modal.open('🔑 Token Gerado',`
-      <div style="text-align:center;padding:20px 0">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">RG ${rg} — ${(DB.get('efetivo')||[]).find(e=>e.rg===rg)?.nome}</div>
-        <div style="font-size:32px;font-family:monospace;font-weight:800;color:var(--az);letter-spacing:5px;
-          background:var(--hover);padding:16px;border-radius:12px;border:2px solid var(--border);margin:10px 0">
-          ${tok}</div>
-        <div style="font-size:12px;color:var(--muted)">⚠️ Anote este token e entregue pessoalmente ao militar.</div>
-        <div style="font-size:11px;color:#DC2626;margin-top:6px">Esta janela é a única vez que o token aparece em texto claro.</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px">ℹ️ No próximo acesso, ele usará este token uma única vez e em seguida criará sua própria senha pessoal — a partir daí, este token não servirá mais.</div>
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-primary" onclick="navigator.clipboard.writeText('${tok}').then(()=>alert('Copiado!'))">📋 Copiar</button>
-        <button class="btn btn-ghost" onclick="Modal.close();Render.admin()">Fechar</button>
-      </div>`);
-  },
-
-  _revogarToken(rg){
-    if(!confirm(`Revogar o acesso do RG ${rg}?\n\nIsso remove o token E a senha pessoal — ele não conseguirá mais entrar até que um novo token seja gerado.`))return;
-    const toks=DB.get('tokens')||{};
-    delete toks[rg];
-    DB.set('tokens',toks);
+  _resetarSenhaAdm(rg,primeiroNome){
+    if(!confirm(`Apagar a senha pessoal de ${primeiroNome} (RG ${rg})?\n\nEle voltará a entrar com RG + Token de Acesso (COE2026) e vai criar uma senha pessoal nova.`))return;
     const admSenhas=DB.get('admSenhas')||{};
     delete admSenhas[rg];
     DB.set('admSenhas',admSenhas);
     const logs=DB.get('logs')||[];
     logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-      tipo:'TOKEN',desc:`Acesso revogado (token + senha pessoal) — RG ${rg}`});
+      tipo:'ADM_SENHA',desc:`Senha pessoal resetada pelo ADM — RG ${rg} (${primeiroNome}) — volta a valer o Token de Acesso (COE2026)`});
     DB.set('logs',logs.slice(0,200));
     Render.admin();
+    Toast.warning(`Senha pessoal resetada: ${primeiroNome}. Próximo acesso será com Token COE2026.`);
   },
 
   _desbloquearEscala(rg,primeiroNome){
@@ -4446,11 +4420,11 @@ document.addEventListener('DOMContentLoaded',async ()=>{
         hint.textContent='🔐 Use sua senha pessoal de 6 dígitos (não é mais o token de ativação)';
       } else {
         lbl.textContent='TOKEN DE ACESSO';
-        hint.textContent='⭐ Informe o token de ativação gerado pelo administrador — em seguida você criará sua senha pessoal';
+        hint.textContent='⭐ Use o Token de Acesso: COE2026 — em seguida você criará sua senha pessoal';
       }
     } else {
       lbl.textContent='SENHA / TOKEN DE ACESSO';
-      hint.textContent='⭐ ADM: token gerado pelo administrador · 👤 Membros: senha de 6 dígitos';
+      hint.textContent='⭐ ADM: Token COE2026 (1º acesso) · 👤 Membros: senha de 6 dígitos';
     }
   });
   // Enter na criação de PIN
