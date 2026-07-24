@@ -864,6 +864,13 @@ body.member-mode #bottom-nav{display:flex}
 </head>
 <body>
 
+<!-- ─── AVISO FIXO: gravação ainda não confirmada pelo banco ─── -->
+<div id="fb-pend-aviso" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#C8991A;color:#1a1300;font:600 12px/1.3 system-ui,sans-serif;padding:8px 14px;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,.3)">
+  <span style="font-size:15px">⚠️</span>
+  <span class="fb-pend-txt" style="flex:1">Alteração ainda não confirmada pelo banco — não feche o app</span>
+  <button onclick="DB.reenviarPendencias()" style="background:rgba(0,0,0,.15);border:1px solid rgba(0,0,0,.25);color:inherit;font:inherit;font-weight:700;padding:4px 10px;border-radius:6px;cursor:pointer">Tentar agora</button>
+</div>
+
 <!-- ─── TELA DE LOGIN ─── -->
 <div id="login">
   <div class="login-card">
@@ -975,7 +982,6 @@ body.member-mode #bottom-nav{display:flex}
         <span class="fb-dot"></span>
         <span id="fb-status-txt">Conectando...</span>
       </div>
-      <button class="tb-btn" onclick="UI.toggleDark()" id="btn-dark">🌙</button>
       <div style="position:relative">
         <button class="tb-btn" onclick="Nav.go('avisos')">🔔
           <span class="notif-dot" id="notif-dot" style="display:none"></span>
@@ -1068,6 +1074,27 @@ let   _fbSynced = false; // dados iniciais já carregados do Firebase?
 const _fbQueue = new Set(); // chaves alteradas antes da sincronização
 let   _fbCfg = false;    // Firebase configurado?
 const LS_PFX = 'SPAEI4_';
+const LS_PEND = LS_PFX+'_pendentes'; // chaves com gravação ainda não confirmada pelo banco (sobrevive a fechar o app)
+
+// Fila de pendências: carregada do localStorage no boot, para não perder o rastro
+// se a página for fechada antes de uma escrita ser confirmada pelo banco.
+let _pendentes = {};
+try{ _pendentes = JSON.parse(localStorage.getItem(LS_PEND)||'{}'); }catch(e){ _pendentes = {}; }
+function _pendGravar(){ try{ localStorage.setItem(LS_PEND, JSON.stringify(_pendentes)); }catch(e){} }
+function _pendMarcar(k, desc){ _pendentes[k] = { desc: desc||k, ts: Date.now() }; _pendGravar(); _pendAtualizaAviso(); }
+function _pendLimpar(k){ delete _pendentes[k]; _pendGravar(); _pendAtualizaAviso(); }
+function _pendAtualizaAviso(){
+  const n = Object.keys(_pendentes).length;
+  const el = document.getElementById('fb-pend-aviso');
+  if(!el) return;
+  if(n===0){ el.style.display='none'; document.body.style.paddingTop=''; return; }
+  el.style.display='flex';
+  document.body.style.paddingTop = el.offsetHeight+'px';
+  const nomes = Object.values(_pendentes).map(p=>p.desc).slice(0,3).join(', ');
+  el.querySelector('.fb-pend-txt').textContent = n===1
+    ? `1 alteração ainda não confirmada pelo banco (${nomes}) — não feche o app`
+    : `${n} alterações ainda não confirmadas pelo banco (${nomes}${n>3?'…':''}) — não feche o app`;
+}
 
 // Chaves que sincronizam em tempo real
 const FB_KEYS = ['efetivo','escala','processos','avisos','logs','tokens',
@@ -1107,38 +1134,72 @@ const DB={
     return null;
   },
 
-  // Escrita: atualiza cache + localStorage + Firebase
-  set(k,v){
+  // Escrita: atualiza cache + localStorage na hora; Firebase só é considerado
+  // "salvo de verdade" depois de reler o nó e confirmar que bate com o enviado.
+  // Enquanto não confirmar, a chave fica em _pendentes (visível na tela, sobrevive
+  // a fechar o app) e entra numa fila de reenvio automático.
+  set(k,v,desc){
     _mem[k]=v;
     try{localStorage.setItem(LS_PFX+k,JSON.stringify(v));}catch(e){}
-    if(FB_KEYS.includes(k)){
-      if(_fbOk && _fbDB && _fbSynced){
-        _fbDB.ref(`${FB_NODE}/${k}`).set(v).catch(e=>console.warn('FB set err:',e));
-      } else if(_fbCfg){
-        _fbQueue.add(k); // aguarda sincronização inicial para não sobrescrever dados remotos
-      }
+    if(!FB_KEYS.includes(k)) return;
+    if(_fbOk && _fbDB && _fbSynced){
+      DB._gravarComConfirmacao(k, v, desc);
+    } else if(_fbCfg){
+      _fbQueue.add(k); // aguarda sincronização inicial para não sobrescrever dados remotos
+      _pendMarcar(k, desc||k);
     }
+  },
+
+  // Grava (ou remove, se v===undefined) e relê para confirmar; se falhar ou o
+  // banco devolver algo diferente, mantém a chave pendente e tenta de novo.
+  _gravarComConfirmacao(k, v, desc){
+    const seq = (DB._seq=DB._seq||{}, DB._seq[k]=(DB._seq[k]||0)+1);
+    _pendMarcar(k, desc||k);
+    const ref = _fbDB.ref(`${FB_NODE}/${k}`);
+    const op = v===undefined ? ref.remove() : ref.set(v);
+    op.then(()=>ref.once('value'))
+      .then(snap=>{
+        if(DB._seq[k]!==seq) return; // já houve gravação mais nova desta chave — ela manda
+        const lido = snap.exists() ? snap.val() : undefined;
+        const ok = JSON.stringify(lido===undefined?null:lido)===JSON.stringify(v===undefined?null:v);
+        if(ok){ _pendLimpar(k); }
+        else { console.warn(`FB confirmação divergente [${k}]`); DB._reagendarEnvio(k,v,desc); }
+      })
+      .catch(e=>{ console.warn('FB set/del err:',k,e); DB._reagendarEnvio(k,v,desc); });
+  },
+
+  // Reenvio automático: tenta de novo em alguns segundos, e também na reconexão.
+  _reagendarEnvio(k, v, desc){
+    setTimeout(()=>{
+      if(_mem[k]!==v) return; // dado local já mudou de novo — a tentativa mais nova cuida disso
+      if(_fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, v, desc);
+    }, 4000);
+  },
+
+  // Reenvia manualmente todas as pendências (botão do aviso fixo)
+  reenviarPendencias(){
+    Object.keys(_pendentes).forEach(k=>{
+      if(_mem[k]!==undefined && _fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, _mem[k], _pendentes[k].desc);
+    });
   },
 
   del(k){
     delete _mem[k];
     try{localStorage.removeItem(LS_PFX+k);}catch(e){}
-    if(FB_KEYS.includes(k)){
-      if(_fbOk && _fbDB && _fbSynced){
-        _fbDB.ref(`${FB_NODE}/${k}`).remove().catch(e=>console.warn('FB del err:',e));
-      } else if(_fbCfg){
-        _fbQueue.add(k);
-      }
+    if(!FB_KEYS.includes(k)) return;
+    if(_fbOk && _fbDB && _fbSynced){
+      DB._gravarComConfirmacao(k, undefined, k);
+    } else if(_fbCfg){
+      _fbQueue.add(k);
+      _pendMarcar(k, k);
     }
   },
 
-  // Envia ao Firebase as chaves alteradas antes da sincronização inicial
+  // Envia ao Firebase as chaves alteradas antes da sincronização inicial —
+  // agora também com confirmação por leitura, igual a set()/del() normais.
   _flushQueue(){
     if(!_fbOk||!_fbDB||!_fbSynced) return;
-    _fbQueue.forEach(k=>{
-      if(_mem[k]===undefined) _fbDB.ref(`${FB_NODE}/${k}`).remove().catch(()=>{});
-      else _fbDB.ref(`${FB_NODE}/${k}`).set(_mem[k]).catch(()=>{});
-    });
+    _fbQueue.forEach(k=>{ DB._gravarComConfirmacao(k, _mem[k], _pendentes[k]&&_pendentes[k].desc||k); });
     _fbQueue.clear();
   },
 
@@ -1186,12 +1247,16 @@ const DB={
       _fbOk=true;
       _fbStatus('connecting','Sincronizando...');
 
-      // 5. Carregar dados do Firebase (tem prioridade)
+      // 5. Carregar dados do Firebase (tem prioridade) — EXCETO chaves com
+      // gravação local ainda pendente de confirmação: essas nunca são
+      // sobrescritas pelo que vier do banco, para não apagar silenciosamente
+      // uma alteração que o próprio usuário acabou de fazer neste aparelho.
       try{
         const snap=await _fbDB.ref(FB_NODE).get();
         if(snap.exists()){
           const fbData=snap.val();
           FB_KEYS.forEach(k=>{
+            if(_pendentes[k]) return; // pendência local vence — será reenviada no flush abaixo
             if(fbData[k]!==undefined){
               _mem[k]=fbData[k];
               try{localStorage.setItem(LS_PFX+k,JSON.stringify(fbData[k]));}catch(e){}
@@ -1210,6 +1275,9 @@ const DB={
 
       _fbOk=true;
       _fbSynced=true;
+      // Qualquer chave pendente (desta sessão ou de uma sessão anterior que
+      // fechou antes de confirmar) entra na fila e é reenviada agora.
+      Object.keys(_pendentes).forEach(k=>_fbQueue.add(k));
       this._flushQueue();
       _fbStatus('online','Online ✓');
 
@@ -2169,7 +2237,7 @@ const Escala={
     // Chefe: inicializa com A_CRITERIO
     if(!semanas[key][rg]){const _mc=(DB.get('efetivo')||[]).find(e=>e.rg===rg);semanas[key][rg]=Array(7).fill(_mc&&_mc.chefe?'A_CRITERIO':'FOLGA');}
     semanas[key][rg][di]=novoSt;
-    DB.set('escalaSemanas',semanas);
+    DB.set('escalaSemanas',semanas,'Escala de folgas');
     _registrarIsencaoAdm(rg,key);
   },
 
@@ -4982,6 +5050,14 @@ const App={
 };
 
 // ── INICIALIZAÇÃO GERAL ─────────────────────
+// Mostra o aviso de pendência assim que possível, sem depender de DOMContentLoaded
+// ainda não ter disparado (scripts no meio do documento normalmente rodam antes do
+// evento, mas alguns navegadores/webviews podem variar essa ordem — então cobrimos
+// os dois casos em vez de confiar só no listener).
+function _initAvisoPendencia(){ _pendAtualizaAviso(); }
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_initAvisoPendencia);
+else _initAvisoPendencia();
+
 document.addEventListener('DOMContentLoaded',async ()=>{
   await DB.init(); // aguarda Firebase conectar (ou timeout)
   UI.initDark();
