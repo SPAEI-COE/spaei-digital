@@ -2621,7 +2621,12 @@ const Auth={
 
   _finalizarLogin(militar){
     this.user={...militar};
-    safeSet(sessionStorage,this.SESSION_KEY,JSON.stringify(this.user));
+    // ADM/chefe: sessão persiste (localStorage) — não precisa logar de novo a cada vez
+    // que fecha o navegador. Membro comum: sessão some ao fechar (sessionStorage), por
+    // segurança padrão em aparelho que pode ser compartilhado.
+    const persistente = !!(militar.admin||militar.chefe);
+    safeSet(persistente?localStorage:sessionStorage, this.SESSION_KEY, JSON.stringify(this.user));
+    safeRemove(persistente?sessionStorage:localStorage, this.SESSION_KEY); // limpa resquício do outro storage, se houver
     const logs=DB.get('logs')||[];
     logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
       tipo:'LOGIN',desc:`${militar.posto} ${militar.nome} acessou (RG ${militar.rg})`});
@@ -2740,6 +2745,7 @@ const Auth={
   logout(){
     if(!confirm('Deseja sair do SPAEI DIGITAL?'))return;
     safeRemove(sessionStorage,this.SESSION_KEY);
+    safeRemove(localStorage,this.SESSION_KEY);
     this.user=null;
     document.body.classList.remove('member-mode');
     const _bn=document.getElementById('bottom-nav');if(_bn)_bn.innerHTML='';
@@ -2755,7 +2761,7 @@ const Auth={
   },
 
   restore(){
-    const raw=safeGet(sessionStorage,this.SESSION_KEY);
+    const raw=safeGet(localStorage,this.SESSION_KEY) || safeGet(sessionStorage,this.SESSION_KEY);
     if(raw){this.user=JSON.parse(raw);return true;}
     return false;
   }
@@ -4613,7 +4619,7 @@ ${extra||''}
           ['Persistência','localStorage do navegador'],
           ['Autenticação ADM','Token de Acesso fixo COE2026 (1º acesso) + Senha Pessoal exclusiva criada pelo próprio ADM (SHA-256)'],
           ['Autenticação Membro','Senha PIN de 6 dígitos (SHA-256, criada no 1º acesso)'],
-          ['Sessão','sessionStorage (fecha ao fechar o navegador)'],
+          ['Sessão','ADM/chefe: persiste (localStorage) · Membro: fecha com o navegador (sessionStorage)'],
           ['Exportação','CSV com BOM UTF-8'],
           ['Versão',`5.8.0 — ${new Date().toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}`],
           ['Efetivo',`${(DB.get('efetivo')||[]).length} militares cadastrados`],
