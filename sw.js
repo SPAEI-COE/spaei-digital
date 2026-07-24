@@ -2,7 +2,7 @@
 // Estratégia: network-first (dados via Firebase precisam estar sempre atualizados),
 // com fallback em cache para permitir abrir o app-shell offline.
 // IMPORTANTE: mudar CACHE_NAME a cada nova versão publicada, para invalidar caches antigos.
-const CACHE_NAME = 'spaei-digital-shell-v6.3';
+const CACHE_NAME = 'spaei-digital-shell-v6.6';
 const APP_SHELL = [
   './',
   './index.html',
