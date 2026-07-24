@@ -1150,6 +1150,29 @@ const DB={
     }
   },
 
+  // Como set(), mas devolve uma Promise que só resolve quando o banco confirma
+  // de verdade a gravação (ou rejeita depois de um tempo, se não conseguir).
+  // Usar para dados críticos onde a tela não pode seguir em frente sem garantia
+  // — ex.: criar senha de acesso, sem isso o usuário pode ficar sem conseguir
+  // entrar de novo se a escrita não tiver realmente chegado ao banco.
+  setAguardando(k, v, desc, timeoutMs){
+    _mem[k]=v;
+    try{localStorage.setItem(LS_PFX+k,JSON.stringify(v));}catch(e){}
+    if(!FB_KEYS.includes(k)) return Promise.resolve(true); // chave só local: já está "salva"
+    return new Promise((resolve,reject)=>{
+      let acabou=false;
+      const t=setTimeout(()=>{ if(!acabou){ acabou=true; reject(new Error('timeout aguardando confirmação')); } }, timeoutMs||12000);
+      const checar=()=>{
+        if(acabou) return;
+        if(!_pendentes[k]){ acabou=true; clearTimeout(t); resolve(true); return; }
+        setTimeout(checar, 300);
+      };
+      if(_fbOk && _fbDB && _fbSynced){ DB._gravarComConfirmacao(k, v, desc); checar(); }
+      else if(_fbCfg){ _fbQueue.add(k); _pendMarcar(k, desc||k); checar(); }
+      else { acabou=true; clearTimeout(t); resolve(true); } // sem Firebase configurado: só local mesmo, não há o que confirmar
+    });
+  },
+
   // Grava (ou remove, se v===undefined) e relê para confirmar; se falhar ou o
   // banco devolver algo diferente, mantém a chave pendente e tenta de novo.
   _gravarComConfirmacao(k, v, desc){
@@ -1172,8 +1195,7 @@ const DB={
   _reagendarEnvio(k, v, desc){
     setTimeout(()=>{
       if(_mem[k]!==v) return; // dado local já mudou de novo — a tentativa mais nova cuida disso
-      if(_fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, v, desc);
-    }, 4000);
+      if(_fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, v, desc);    }, 4000);
   },
 
   // Reenvia manualmente todas as pendências (botão do aviso fixo)
@@ -2692,7 +2714,13 @@ const Auth={
     if(this._pendingIsAdmin){
       const admSenhas=DB.get('admSenhas')||{};
       admSenhas[rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
-      DB.set('admSenhas',admSenhas);
+      try{
+        await DB.setAguardando('admSenhas',admSenhas,'Senha pessoal ADM (RG '+rg+')');
+      }catch(e){
+        btn.disabled=false;btn.innerHTML='✅ CRIAR SENHA E ACESSAR';
+        this.showPinErr('Não foi possível confirmar o salvamento da senha no banco (sem conexão?). Tente novamente antes de sair do app.');
+        return;
+      }
 
       const logs=DB.get('logs')||[];
       logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
@@ -2701,7 +2729,13 @@ const Auth={
     } else {
       const pins=DB.get('pins')||{};
       pins[rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
-      DB.set('pins',pins);
+      try{
+        await DB.setAguardando('pins',pins,'Senha pessoal (RG '+rg+')');
+      }catch(e){
+        btn.disabled=false;btn.innerHTML='✅ CRIAR SENHA E ACESSAR';
+        this.showPinErr('Não foi possível confirmar o salvamento da senha no banco (sem conexão?). Tente novamente antes de sair do app.');
+        return;
+      }
 
       const logs=DB.get('logs')||[];
       logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
@@ -4798,7 +4832,13 @@ ${extra||''}
     const salt=uid().slice(0,16);
     const hash=await sha256(salt+nova);
     admSenhas[rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
-    DB.set('admSenhas',admSenhas);
+    showMsg('Salvando...','#4a5262');
+    try{
+      await DB.setAguardando('admSenhas',admSenhas,'Senha pessoal ADM (RG '+rg+')');
+    }catch(e){
+      showMsg('⚠️ Não foi possível confirmar o salvamento no banco (sem conexão?). Tente novamente antes de sair do app.','#DC2626');
+      return;
+    }
 
     const logs=DB.get('logs')||[];
     const u=Auth.user;
