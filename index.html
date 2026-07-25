@@ -1200,17 +1200,28 @@ const DB={
     const op = v===undefined ? ref.remove() : ref.set(v);
     op.then(()=>ref.once('value'))
       .then(snap=>{
-        if(DB._seq[k]!==seq) return; // já houve gravação mais nova desta chave — ela manda
+        // Uma gravação mais nova já assumiu esta chave — ela é quem decide o
+        // resultado final, então esta tentativa antiga não faz mais nada (nem
+        // limpa nem marca erro: quem manda agora é a mais recente).
+        if(DB._seq[k]!==seq) return;
         const lido = snap.exists() ? snap.val() : undefined;
-        const ok = JSON.stringify(lido===undefined?null:lido)===JSON.stringify(v===undefined?null:v);
+        // Compara contra o valor MAIS RECENTE em memória, não contra "v" (o
+        // valor específico desta chamada) — chaves que recebem muitas escritas
+        // seguidas rápidas (ex. "logs", atualizado de vários pontos do app)
+        // sempre teriam uma comparação desatualizada se comparássemos contra
+        // "v"; o que importa é se o banco já reflete o estado atual, não se
+        // reflete exatamente esta chamada específica.
+        const alvo = _mem[k];
+        const ok = JSON.stringify(lido===undefined?null:lido)===JSON.stringify(alvo===undefined?null:alvo);
         if(ok){ _pendLimpar(k); delete _pendUltimoErro[k]; }
-        else { _pendUltimoErro[k]='banco devolveu valor diferente do enviado'; console.warn(`FB confirmação divergente [${k}]`); DB._reagendarEnvio(k,v,desc); }
+        else { _pendUltimoErro[k]='banco devolveu valor diferente do enviado'; console.warn(`FB confirmação divergente [${k}]`); DB._reagendarEnvio(k,_mem[k],desc); }
       })
       .catch(e=>{
+        if(DB._seq[k]!==seq) return; // idem: tentativa antiga, já superada
         _pendUltimoErro[k] = (e&&e.code) ? (e.code+': '+e.message) : (e&&e.message)||String(e);
         console.warn('FB set/del err:',k,e);
         _pendAtualizaAviso();
-        DB._reagendarEnvio(k,v,desc);
+        DB._reagendarEnvio(k,_mem[k],desc);
       });
   },
 
