@@ -982,6 +982,7 @@ body.member-mode #bottom-nav{display:flex}
         <span class="fb-dot"></span>
         <span id="fb-status-txt">Conectando...</span>
       </div>
+      <button class="tb-btn" id="btn-forcar-att" onclick="forcarAtualizacaoCompleta()" title="Forçar atualização — limpa o cache e busca a versão mais recente agora">🔄</button>
       <div style="position:relative">
         <button class="tb-btn" onclick="Nav.go('avisos')">🔔
           <span class="notif-dot" id="notif-dot" style="display:none"></span>
@@ -4779,10 +4780,16 @@ ${extra||''}
           ['Autenticação Membro','Senha PIN de 6 dígitos (SHA-256, criada no 1º acesso)'],
           ['Sessão','ADM/chefe: persiste (localStorage) · Membro: fecha com o navegador (sessionStorage)'],
           ['Exportação','CSV com BOM UTF-8'],
-          ['Versão',`5.8.0 — ${new Date().toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}`],
+          ['Versão',`v${APP_VERSAO}`],
           ['Efetivo',`${(DB.get('efetivo')||[]).length} militares cadastrados`],
           ['Processos',`${(DB.get('processos')||[]).length} processos cadastrados`],
         ].map(([k,v])=>`<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${v}</span></div>`).join('')}
+        <button class="btn btn-primary" style="margin-top:14px;width:100%;justify-content:center" onclick="forcarAtualizacaoCompleta()">
+          🔄 Forçar Atualização (buscar versão mais recente agora)
+        </button>
+        <div style="margin-top:4px;font-size:10px;color:var(--muted);text-align:center">
+          Limpa o cache do app e recarrega direto do servidor. Seus dados (escala, senha, processos) não são afetados.
+        </div>
         <button class="btn btn-primary" style="margin-top:14px;width:100%;justify-content:center" onclick="abrirConfiguracaoFirebase()">
           🔥 Configurar Firebase (Sincronização em Tempo Real)
         </button>
@@ -5848,6 +5855,33 @@ Render._dpDetail = function(id, src){
     </div>
   `);
 };
+
+// ── Força-atualização manual: botão visível na interface (Config e topo do
+// app) para o usuário limpar tudo e buscar a versão mais recente na hora,
+// sem precisar fechar o app, trocar de aba ou esperar o SW perceber sozinho.
+// Faz a limpeza mais completa possível: desregistra o Service Worker, apaga
+// todos os caches do navegador para este site, e recarrega ignorando cache —
+// preserva os DADOS do app (localStorage de sessão/escala/etc.), só limpa o
+// que é cache de código/arquivos.
+async function forcarAtualizacaoCompleta(){
+  const btn = document.getElementById('btn-forcar-att');
+  if(btn){ btn.disabled=true; btn.textContent='Atualizando…'; }
+  try{
+    if('serviceWorker' in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if('caches' in window){
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+  }catch(e){ console.warn('Força-atualização: falha ao limpar cache/SW', e.message); }
+  // Recarrega com um parâmetro novo na URL para garantir que nem um cache de
+  // rede intermediário (proxy, CDN do navegador) devolva algo antigo.
+  const url = new URL(location.href);
+  url.searchParams.set('_att', Date.now());
+  location.href = url.toString();
+}
 
 // ── PWA: registro do Service Worker (app-shell offline + instalação) ──
 if('serviceWorker' in navigator){
