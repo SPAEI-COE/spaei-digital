@@ -1083,16 +1083,30 @@ const _pendUltimoErro = {}; // último erro técnico real por chave, para diagn�
 let _ultimoErroConexao = null; // último erro de conexão capturado, para _fbCausaOffline
 try{ _pendentes = JSON.parse(localStorage.getItem(LS_PEND)||'{}'); }catch(e){ _pendentes = {}; }
 function _pendGravar(){ try{ localStorage.setItem(LS_PEND, JSON.stringify(_pendentes)); }catch(e){} }
-function _pendMarcar(k, desc){ _pendentes[k] = { desc: desc||k, ts: Date.now() }; _pendGravar(); _pendAtualizaAviso(); }
-function _pendLimpar(k){ delete _pendentes[k]; _pendGravar(); _pendAtualizaAviso(); }
+
+// MUDANÇA DE SISTEMA: a faixa amarela de aviso agora é reservada só para dados
+// CRÍTICOS — onde a pessoa pode realmente perder algo importante se o app for
+// fechado sem confirmar (senha de acesso, escala/folga marcada, processo,
+// aviso institucional). Dados auxiliares/históricos (logs, contadores) sempre
+// sincronizam normalmente com o banco por trás, mas NUNCA disparam alarme
+// visível — perder alguns segundos de confirmação de um log não prejudica
+// ninguém, e com vários usuários gravando ao mesmo tempo (12+ membros, TV 24h)
+// esse tipo de chave quase sempre tem alguma pendência residual passageira.
+const CHAVES_CRITICAS = ['admSenhas','pins','escalaSemanas','processos','avisos'];
+function _pendMarcar(k, desc){
+  _pendentes[k] = { desc: desc||k, ts: Date.now() };
+  _pendGravar();
+  if(CHAVES_CRITICAS.includes(k)) _pendAtualizaAviso();
+}
+function _pendLimpar(k){ delete _pendentes[k]; _pendGravar(); if(CHAVES_CRITICAS.includes(k)) _pendAtualizaAviso(); }
 function _pendAtualizaAviso(){
-  const n = Object.keys(_pendentes).length;
+  const chaves = Object.keys(_pendentes).filter(k=>CHAVES_CRITICAS.includes(k));
+  const n = chaves.length;
   const el = document.getElementById('fb-pend-aviso');
   if(!el) return;
   if(n===0){ el.style.display='none'; document.body.style.paddingTop=''; return; }
   el.style.display='flex';
   document.body.style.paddingTop = el.offsetHeight+'px';
-  const chaves = Object.keys(_pendentes);
   const nomes = chaves.map(k=>_pendentes[k].desc).slice(0,3).join(', ');
   // Motivo técnico da primeira chave pendente que tiver um erro registrado —
   // mostrado na própria tela para o usuário poder relatar sem precisar de
