@@ -1,9 +1,14 @@
 // SPAEI DIGITAL — Service Worker
 // Estratégia: network-first (dados via Firebase precisam estar sempre atualizados),
 // com fallback em cache para permitir abrir o app-shell offline.
-// CACHE_NAME muda a cada deploy (ver rodapé do arquivo — atualizado automaticamente
-// pelo script de publicação, não precisa mais editar manualmente).
-const CACHE_NAME = 'spaei-digital-shell-v6.12';
+//
+// CACHE_NAME pode ficar fixo aqui: quem garante a atualização automática é o
+// index.html, que registra este arquivo com "?v="+APP_VERSAO na URL — cada
+// vez que a versão do app muda, a URL de registro muda, e o navegador trata
+// isso como um Service Worker DIFERENTE (reinstala, ativa, limpa cache velho)
+// automaticamente, sem precisar editar nada aqui. Fonte única de verdade da
+// versão: a constante APP_VERSAO no index.html.
+const CACHE_NAME = 'spaei-digital-shell';
 const APP_SHELL = [
   './',
   './index.html',
