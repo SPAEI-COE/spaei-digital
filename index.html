@@ -1195,14 +1195,28 @@ const DB={
   _reagendarEnvio(k, v, desc){
     setTimeout(()=>{
       if(_mem[k]!==v) return; // dado local já mudou de novo — a tentativa mais nova cuida disso
-      if(_fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, v, desc);    }, 4000);
+      if(_fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, v, desc);
+    }, 4000);
   },
 
-  // Reenvia manualmente todas as pendências (botão do aviso fixo)
+  // Reenvia manualmente todas as pendências (botão "Tentar agora" do aviso fixo).
+  // Antes, se a conexão ainda não estivesse pronta, isso não fazia nada e o
+  // botão parecia quebrado — agora sempre tenta reconectar primeiro se precisar,
+  // e sempre dá um retorno visível (nunca fica em silêncio).
   reenviarPendencias(){
-    Object.keys(_pendentes).forEach(k=>{
-      if(_mem[k]!==undefined && _fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, _mem[k], _pendentes[k].desc);
-    });
+    const chaves = Object.keys(_pendentes);
+    if(!chaves.length) return;
+    if(_fbOk && _fbDB && _fbSynced){
+      chaves.forEach(k=>{ if(_mem[k]!==undefined) DB._gravarComConfirmacao(k, _mem[k], _pendentes[k].desc); });
+      if(typeof Toast!=='undefined') Toast.info('Reenviando ao banco…',2000);
+    } else {
+      // Ainda não conectado de verdade: força uma reconexão completa em vez de
+      // deixar o clique não fazer nada.
+      DB._retryN = 0;
+      _fbStatus('connecting','Reconectando...');
+      if(typeof Toast!=='undefined') Toast.info('Reconectando ao banco…',2500);
+      DB.init();
+    }
   },
 
   del(k){
@@ -1334,6 +1348,18 @@ const DB={
     document.addEventListener('visibilitychange', ()=>{
       if(document.visibilityState==='visible' && !_fbOk){ DB._retryN=0; DB.init(); }
     });
+    // Watchdog: uma pendência pode ficar "órfã" se a única tentativa de reenvio
+    // automático (_reagendarEnvio, 4s depois da falha) também falhar bem no
+    // instante em que a rede ainda estava se recuperando — depois disso nada
+    // mais tentava de novo sozinho, só o clique manual em "Tentar agora".
+    // Este watchdog varre a cada 15s e reenvia qualquer pendência esquecida
+    // sempre que a conexão já estiver de fato pronta.
+    setInterval(()=>{
+      if(!_fbOk || !_fbDB || !_fbSynced) return;
+      const chaves = Object.keys(_pendentes);
+      if(!chaves.length) return;
+      chaves.forEach(k=>{ if(_mem[k]!==undefined) DB._gravarComConfirmacao(k, _mem[k], _pendentes[k].desc); });
+    }, 15000);
   },
 
   _bootstrap(){
