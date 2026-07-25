@@ -5817,7 +5817,24 @@ Render._dpDetail = function(id, src){
 // ── PWA: registro do Service Worker (app-shell offline + instalação) ──
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW não registrado:',e.message));
+    navigator.serviceWorker.register('./sw.js').then(reg=>{
+      // Verifica se há uma versão nova publicada logo ao carregar, e depois
+      // periodicamente — sem isso, uma aba deixada aberta por muito tempo
+      // nunca percebia sozinha que existia uma atualização.
+      reg.update().catch(()=>{});
+      setInterval(()=>reg.update().catch(()=>{}), 5*60*1000);
+    }).catch(e=>console.warn('SW não registrado:',e.message));
+
+    // Quando o Service Worker novo assume o controle (troca de versão),
+    // recarrega a página sozinha — sem isso, uma aba já aberta continuava
+    // rodando o código antigo em memória mesmo com o cache já atualizado.
+    let jaRecarregou = false;
+    navigator.serviceWorker.addEventListener('message', (e)=>{
+      if(e.data && e.data.type==='SW_UPDATED' && !jaRecarregou){
+        jaRecarregou = true;
+        location.reload();
+      }
+    });
   });
 }
 </script>
