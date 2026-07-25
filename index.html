@@ -1151,12 +1151,22 @@ const DB={
     _mem[k]=v;
     try{localStorage.setItem(LS_PFX+k,JSON.stringify(v));}catch(e){}
     if(!FB_KEYS.includes(k)) return;
-    if(_fbOk && _fbDB && _fbSynced){
-      DB._gravarComConfirmacao(k, v, desc);
-    } else if(_fbCfg){
+    // O estado local (_mem/localStorage) já está atualizado na hora, sempre —
+    // só a GRAVAÇÃO DE REDE é agrupada com um pequeno atraso (400ms). Chaves
+    // gravadas de muitos pontos diferentes quase ao mesmo tempo (ex. "logs",
+    // atualizado de 14 lugares do app) faziam uma rajada de escritas que
+    // nunca terminava de confirmar, uma sempre invalidando a anterior antes
+    // de completar. Agrupando, só a última do burst de fato vai à rede.
+    if(_fbCfg && !(_fbOk && _fbDB && _fbSynced)){
       _fbQueue.add(k); // aguarda sincronização inicial para não sobrescrever dados remotos
       _pendMarcar(k, desc||k);
+      return;
     }
+    if(!_fbOk || !_fbDB || !_fbSynced) return;
+    _pendMarcar(k, desc||k); // aviso aparece na hora, mesmo com a gravação de rede agrupada
+    DB._debounce = DB._debounce||{};
+    clearTimeout(DB._debounce[k]);
+    DB._debounce[k] = setTimeout(()=>{ DB._gravarComConfirmacao(k, _mem[k], desc); }, 400);
   },
 
   // Como set(), mas devolve uma Promise que só resolve quando o banco confirma
@@ -1226,10 +1236,15 @@ const DB={
   },
 
   // Reenvio automático: tenta de novo em alguns segundos, e também na reconexão.
+  // Sempre grava o valor MAIS ATUAL de _mem[k] (não o "v" antigo capturado na
+  // hora do erro) — em chaves com escritas frequentes (ex. logs, atualizado
+  // de 14 pontos do app), o dado quase sempre já mudou de novo quando o timer
+  // dispara; desistir nesse caso deixava a pendência sem ninguém tentando
+  // resolvê-la de verdade.
   _reagendarEnvio(k, v, desc){
     setTimeout(()=>{
-      if(_mem[k]!==v) return; // dado local já mudou de novo — a tentativa mais nova cuida disso
-      if(_fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, v, desc);
+      if(_mem[k]===undefined && v!==undefined) return; // chave foi removida de outra forma, nada a reenviar
+      if(_fbOk && _fbDB && _fbSynced) DB._gravarComConfirmacao(k, _mem[k], desc);
     }, 4000);
   },
 
