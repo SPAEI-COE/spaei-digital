@@ -4552,7 +4552,7 @@ ${extra||''}
   _gerarRel(tipo,fmt){
     if(fmt==='PDF'){
       if(tipo==='escala'){
-        const ef=DB.get('efetivo')||[];
+        const ef=sortEf(DB.get('efetivo')||[]);
         const allSt=Escala.getAllStatus(ef);
         const DIAS=getDias();
         this._pdfWindow(`Escala de Folgas — Semana ${getLabelSemana()}`,
@@ -4569,7 +4569,9 @@ ${extra||''}
     const cf=this._csvField;
     let csv='',nome='';
     if(tipo==='escala'){
-      const ef=DB.get('efetivo')||[];
+      // Relatório de escala/folga sempre em ordem hierárquica (chefe → posto → antiguidade),
+      // igual ao resto do app — antes usava a ordem crua salva no banco.
+      const ef=sortEf(DB.get('efetivo')||[]);
       const allSt=Escala.getAllStatus(ef);
       const DIAS=getDias();
       csv=[cf('POSTO'),cf('RG'),cf('NOME'),cf('SEMANA'),...DIAS.map(d=>cf(d.dt+'/'+d.jsDate.getFullYear()))].join(',')+'\n';
