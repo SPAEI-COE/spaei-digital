@@ -1233,6 +1233,7 @@ const DB={
 
   // Inicialização: localStorage → Firebase → listeners
   async init(){
+    DB._instalarReconexaoAutomatica();
     // 1. Carregar localStorage no cache (acesso imediato)
     [...FB_KEYS,...LOCAL_KEYS,'BOOT'].forEach(k=>{
       try{const r=localStorage.getItem(LS_PFX+k);if(r!==null)_mem[k]=JSON.parse(r);}catch(e){}
@@ -1257,9 +1258,11 @@ const DB={
       if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
       _fbDB = firebase.database();
 
-      // Teste de conectividade (timeout 14s — tablets/redes institucionais mais lentas)
+      // Teste de conectividade — timeout mais curto (8s) porque agora há retry
+      // rápido em seguida; esperar 14s parado numa rede ruim só atrasa a
+      // primeira tentativa de reconexão sem ganhar nada.
       await new Promise((res,rej)=>{
-        const t=setTimeout(()=>rej(new Error('timeout')),14000);
+        const t=setTimeout(()=>rej(new Error('timeout')),8000);
         _fbDB.ref('.info/connected').once('value',s=>{
           clearTimeout(t);
           s.val()===true?res():rej(new Error('offline'));
@@ -1268,6 +1271,7 @@ const DB={
 
       _fbOk=true;
       _fbStatus('connecting','Sincronizando...');
+      DB._retryN = 0;
 
       // 5. Carregar dados do Firebase (tem prioridade) — EXCETO chaves com
       // gravação local ainda pendente de confirmação: essas nunca são
@@ -1309,8 +1313,27 @@ const DB={
     } catch(err){
       console.warn('Firebase erro:',err.message);
       _fbStatus('offline',_fbCausaOffline(err));
-      setTimeout(()=>{ if(!_fbOk) DB.init(); }, 20000); // nova tentativa automática
+      // Retry com backoff progressivo (2s→4s→8s→16s→20s) em vez de esperar
+      // sempre 20s parado — reconecta bem mais rápido em instabilidades curtas
+      // (comum em rede móvel: perde sinal um instante e volta).
+      DB._retryN = (DB._retryN||0)+1;
+      const espera = Math.min(20000, 2000*Math.pow(2, DB._retryN-1));
+      setTimeout(()=>{ if(!_fbOk) DB.init(); }, espera);
     }
+  },
+
+  // Reconecta na hora quando o navegador sinaliza que a rede voltou, ou
+  // quando o app volta a ficar visível (usuário trocou de app e voltou,
+  // ou o navegador suspendeu timers em segundo plano). Sem isso, o app podia
+  // ficar preso em "Offline" até o próximo ciclo do backoff, mesmo com a
+  // rede já boa de novo.
+  _instalarReconexaoAutomatica(){
+    if(DB._reconexaoInstalada) return;
+    DB._reconexaoInstalada = true;
+    window.addEventListener('online', ()=>{ if(!_fbOk){ DB._retryN=0; DB.init(); } });
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState==='visible' && !_fbOk){ DB._retryN=0; DB.init(); }
+    });
   },
 
   _bootstrap(){
@@ -1383,6 +1406,11 @@ const DB={
         } else { DB._flushQueue(); }
       } else {
         _fbOk=false; _fbStatus('offline','Offline');
+        // Desconexão detectada pelo próprio Firebase (não erro de boot): o SDK
+        // tenta reconectar o WebSocket sozinho, mas se demorar demais também
+        // acionamos nosso backoff — cobre o caso de a rede cair de vez.
+        clearTimeout(DB._reconexaoWatchdog);
+        DB._reconexaoWatchdog = setTimeout(()=>{ if(!_fbOk){ DB._retryN=0; DB.init(); } }, 15000);
       }
     });
   },
