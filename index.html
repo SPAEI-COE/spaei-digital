@@ -3138,7 +3138,7 @@ const Render={
   perfil(){
     const u=Auth.user;
     const av=(DB.get('avisos')||[]).filter(a=>!a.lido).length;
-    const proc=(DB.get('processos')||[]).filter(p=>p.status!=='CONCLUÍDO').length;
+    const proc=[...(DB.get('processos')||[]), ...getSeiProcs()].filter(p=>p.status!=='CONCLUÍDO').length;
     const enviou=Escala.isEnviado(u.rg);
     const irr=membroIrregular(u.rg);
     const dark=!document.body.classList.contains('light');
@@ -4456,7 +4456,7 @@ const Render={
 
   // ── RELATÓRIOS ─────────────────────────────
   relatorios(){
-    const proc=DB.get('processos')||[];
+    const proc=[...(DB.get('processos')||[]), ...getSeiProcs()];
     const ef=DB.get('efetivo')||[];
     const allSt=Escala.getAllStatus(ef);
     // Contagem do 1º dia útil (SEG) da semana exibida
@@ -4559,7 +4559,10 @@ ${extra||''}
           ['POSTO','RG','NOME',...DIAS.map(d=>d.lbl+' '+d.dt)],
           ef.map(m=>[m.posto,m.rg,m.nome,...(allSt[m.rg]||[]).map(s=>s||'—')]));
       } else if(tipo==='processos'){
-        const proc=DB.get('processos')||[];
+        // Une processos cadastrados direto no SPAEI com os que vêm do SEI
+        // Digital COE (sincronizados via /spaei-digital/sei-processos) —
+        // antes o relatório mostrava só os do SPAEI, sem os do SEI.
+        const proc=[...(DB.get('processos')||[]), ...getSeiProcs()];
         this._pdfWindow('Processos SEI — Situação Geral',
           ['NÚMERO','ASSUNTO','TIPO','STATUS','RESPONSÁVEL','PRAZO','PRIORIDADE'],
           proc.map(p=>[p.numero,p.assunto,p.tipo,p.status,p.resp,p.prazo,p.prio]));
@@ -4578,7 +4581,8 @@ ${extra||''}
       ef.forEach(m=>{csv+=[cf(m.posto),cf(m.rg),cf(m.nome),cf(getLabelSemana()),...(allSt[m.rg]||[]).map(cf)].join(',')+'\n';});
       nome='SPAEI_Escala.csv';
     } else if(tipo==='processos'){
-      const proc=DB.get('processos')||[];
+      // Idem: une processos do SPAEI com os do SEI Digital COE no CSV também.
+      const proc=[...(DB.get('processos')||[]), ...getSeiProcs()];
       csv=['NUMERO','ASSUNTO','TIPO','STATUS','RESPONSAVEL','CRIADO','PRAZO','PRIORIDADE'].map(cf).join(',')+'\n';
       proc.forEach(p=>{csv+=[cf(p.numero),cf(p.assunto),cf(p.tipo),cf(p.status),cf(p.resp),cf(p.criado),cf(p.prazo),cf(p.prio)].join(',')+'\n';});
       nome='SPAEI_Processos.csv';
@@ -4784,7 +4788,7 @@ ${extra||''}
           ['Exportação','CSV com BOM UTF-8'],
           ['Versão',`v${APP_VERSAO}`],
           ['Efetivo',`${(DB.get('efetivo')||[]).length} militares cadastrados`],
-          ['Processos',`${(DB.get('processos')||[]).length} processos cadastrados`],
+          ['Processos',`${(DB.get('processos')||[]).length + getSeiProcs().length} processos cadastrados (${(DB.get('processos')||[]).length} local · ${getSeiProcs().length} via SEI)`],
         ].map(([k,v])=>`<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${v}</span></div>`).join('')}
         <button class="btn btn-primary" style="margin-top:14px;width:100%;justify-content:center" onclick="forcarAtualizacaoCompleta()">
           🔄 Forçar Atualização (buscar versão mais recente agora)
