@@ -1079,6 +1079,8 @@ const LS_PEND = LS_PFX+'_pendentes'; // chaves com gravação ainda não confirm
 // Fila de pendências: carregada do localStorage no boot, para não perder o rastro
 // se a página for fechada antes de uma escrita ser confirmada pelo banco.
 let _pendentes = {};
+const _pendUltimoErro = {}; // último erro técnico real por chave, para diagnóstico visível na tela
+let _ultimoErroConexao = null; // último erro de conexão capturado, para _fbCausaOffline
 try{ _pendentes = JSON.parse(localStorage.getItem(LS_PEND)||'{}'); }catch(e){ _pendentes = {}; }
 function _pendGravar(){ try{ localStorage.setItem(LS_PEND, JSON.stringify(_pendentes)); }catch(e){} }
 function _pendMarcar(k, desc){ _pendentes[k] = { desc: desc||k, ts: Date.now() }; _pendGravar(); _pendAtualizaAviso(); }
@@ -1090,10 +1092,17 @@ function _pendAtualizaAviso(){
   if(n===0){ el.style.display='none'; document.body.style.paddingTop=''; return; }
   el.style.display='flex';
   document.body.style.paddingTop = el.offsetHeight+'px';
-  const nomes = Object.values(_pendentes).map(p=>p.desc).slice(0,3).join(', ');
-  el.querySelector('.fb-pend-txt').textContent = n===1
-    ? `1 alteração ainda não confirmada pelo banco (${nomes}) — não feche o app`
-    : `${n} alterações ainda não confirmadas pelo banco (${nomes}${n>3?'…':''}) — não feche o app`;
+  const chaves = Object.keys(_pendentes);
+  const nomes = chaves.map(k=>_pendentes[k].desc).slice(0,3).join(', ');
+  // Motivo técnico da primeira chave pendente que tiver um erro registrado —
+  // mostrado na própria tela para o usuário poder relatar sem precisar de
+  // ferramentas de desenvolvedor.
+  const motivoK = chaves.find(k=>_pendUltimoErro[k]);
+  const motivo = motivoK ? (' · motivo: '+_pendUltimoErro[motivoK]) : '';
+  el.querySelector('.fb-pend-txt').textContent = (n===1
+    ? `1 alteração ainda não confirmada pelo banco (${nomes})`
+    : `${n} alterações ainda não confirmadas pelo banco (${nomes}${chaves.length>3?'…':''})`)
+    + motivo + ' — não feche o app';
 }
 
 // Chaves que sincronizam em tempo real
@@ -1161,14 +1170,23 @@ const DB={
     if(!FB_KEYS.includes(k)) return Promise.resolve(true); // chave só local: já está "salva"
     return new Promise((resolve,reject)=>{
       let acabou=false;
-      const t=setTimeout(()=>{ if(!acabou){ acabou=true; reject(new Error('timeout aguardando confirmação')); } }, timeoutMs||12000);
+      const t=setTimeout(()=>{
+        if(!acabou){
+          acabou=true;
+          const causa = _pendUltimoErro[k] ? (' — '+_pendUltimoErro[k]) : '';
+          reject(new Error('timeout aguardando confirmação'+causa));
+        }
+      }, timeoutMs||12000);
       const checar=()=>{
         if(acabou) return;
         if(!_pendentes[k]){ acabou=true; clearTimeout(t); resolve(true); return; }
         setTimeout(checar, 300);
       };
       if(_fbOk && _fbDB && _fbSynced){ DB._gravarComConfirmacao(k, v, desc); checar(); }
-      else if(_fbCfg){ _fbQueue.add(k); _pendMarcar(k, desc||k); checar(); }
+      else if(_fbCfg){
+        acabou=true; clearTimeout(t);
+        reject(new Error(_fbOk ? 'aguardando sincronização inicial com o banco' : 'sem conexão com o banco no momento (status: '+(_fbCausaOffline(_ultimoErroConexao)||'desconectado')+')'));
+      }
       else { acabou=true; clearTimeout(t); resolve(true); } // sem Firebase configurado: só local mesmo, não há o que confirmar
     });
   },
@@ -1185,10 +1203,15 @@ const DB={
         if(DB._seq[k]!==seq) return; // já houve gravação mais nova desta chave — ela manda
         const lido = snap.exists() ? snap.val() : undefined;
         const ok = JSON.stringify(lido===undefined?null:lido)===JSON.stringify(v===undefined?null:v);
-        if(ok){ _pendLimpar(k); }
-        else { console.warn(`FB confirmação divergente [${k}]`); DB._reagendarEnvio(k,v,desc); }
+        if(ok){ _pendLimpar(k); delete _pendUltimoErro[k]; }
+        else { _pendUltimoErro[k]='banco devolveu valor diferente do enviado'; console.warn(`FB confirmação divergente [${k}]`); DB._reagendarEnvio(k,v,desc); }
       })
-      .catch(e=>{ console.warn('FB set/del err:',k,e); DB._reagendarEnvio(k,v,desc); });
+      .catch(e=>{
+        _pendUltimoErro[k] = (e&&e.code) ? (e.code+': '+e.message) : (e&&e.message)||String(e);
+        console.warn('FB set/del err:',k,e);
+        _pendAtualizaAviso();
+        DB._reagendarEnvio(k,v,desc);
+      });
   },
 
   // Reenvio automático: tenta de novo em alguns segundos, e também na reconexão.
@@ -1326,6 +1349,7 @@ const DB={
 
     } catch(err){
       console.warn('Firebase erro:',err.message);
+      _ultimoErroConexao = err;
       _fbStatus('offline',_fbCausaOffline(err));
       // Retry com backoff progressivo (2s→4s→8s→16s→20s) em vez de esperar
       // sempre 20s parado — reconecta bem mais rápido em instabilidades curtas
@@ -2772,7 +2796,7 @@ const Auth={
         await DB.setAguardando('admSenhas',admSenhas,'Senha pessoal ADM (RG '+rg+')');
       }catch(e){
         btn.disabled=false;btn.innerHTML='✅ CRIAR SENHA E ACESSAR';
-        this.showPinErr('Não foi possível confirmar o salvamento da senha no banco (sem conexão?). Tente novamente antes de sair do app.');
+        this.showPinErr('Não confirmado pelo banco: '+(e&&e.message||'erro desconhecido')+'. Tente novamente antes de sair do app.');
         return;
       }
 
@@ -2787,7 +2811,7 @@ const Auth={
         await DB.setAguardando('pins',pins,'Senha pessoal (RG '+rg+')');
       }catch(e){
         btn.disabled=false;btn.innerHTML='✅ CRIAR SENHA E ACESSAR';
-        this.showPinErr('Não foi possível confirmar o salvamento da senha no banco (sem conexão?). Tente novamente antes de sair do app.');
+        this.showPinErr('Não confirmado pelo banco: '+(e&&e.message||'erro desconhecido')+'. Tente novamente antes de sair do app.');
         return;
       }
 
@@ -4890,7 +4914,7 @@ ${extra||''}
     try{
       await DB.setAguardando('admSenhas',admSenhas,'Senha pessoal ADM (RG '+rg+')');
     }catch(e){
-      showMsg('⚠️ Não foi possível confirmar o salvamento no banco (sem conexão?). Tente novamente antes de sair do app.','#DC2626');
+      showMsg('⚠️ Não confirmado pelo banco: '+(e&&e.message||'erro desconhecido')+'. Tente novamente antes de sair do app.','#DC2626');
       return;
     }
 
