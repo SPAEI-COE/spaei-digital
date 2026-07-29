@@ -1068,7 +1068,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.18';
+const APP_VERSAO = '6.19';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1441,6 +1441,37 @@ const DB={
       if(!chaves.length) return;
       chaves.forEach(k=>{ if(_mem[k]!==undefined) DB._gravarComConfirmacao(k, _mem[k], _pendentes[k].desc); });
     }, 15000);
+  },
+
+  // ── WATCHDOG DE VIRADA DE SEMANA (v6.19) ────────────────────────────────
+  // CAUSA RAIZ corrigida: Motor.tick() (gera a base da semana atual+próxima)
+  // só rodava 1x, dentro de App.init() (login/boot). Uma sessão/aba que
+  // permanecesse aberta atravessando a virada de segunda-feira 00h continuava
+  // exibindo/gravando no par de semanas antigo até o usuário navegar para
+  // outra tela e voltar (ou recarregar) — sintoma relatado como "sistema não
+  // liberou automaticamente a marcação da semana". Nenhum setInterval/
+  // visibilitychange/online existente tocava Escala/Motor/Render.folgas.
+  // Este watchdog compara a cada 60s a chave da semana atual real contra a
+  // última conhecida; se mudou, refaz Motor.tick() e, se a tela ativa for
+  // Folgas, re-renderiza sozinho — sem depender de navegação manual.
+  _instalarWatchdogVirada(){
+    if(this._viradaInstalada) return;
+    this._viradaInstalada = true;
+    this._ultimaChaveSemana = chaveDeData(new Date());
+    const checar = () => {
+      const chaveHoje = chaveDeData(new Date());
+      if(chaveHoje === this._ultimaChaveSemana) return;
+      this._ultimaChaveSemana = chaveHoje;
+      if(!Auth.user) return; // ainda na tela de login: nada a re-renderizar
+      Motor.tick();
+      if(Nav.current==='folgas') Render.folgas();
+      if(Nav.current==='dashboard') Render.dashboard();
+      if(typeof _checkLembreteAdmSemanal==='function') _checkLembreteAdmSemanal();
+    };
+    setInterval(checar, 60000);
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState==='visible') checar();
+    });
   },
 
   _bootstrap(){
@@ -5222,6 +5253,10 @@ const App={
     window.addEventListener('resize', ()=>App._applyLayout(), {passive:true});
     // Inicializar Motor (gera semanas se necessário)
     Motor.tick();
+    // Watchdog: detecta virada real de semana (segunda 00h) em sessão já
+    // aberta e refaz Motor.tick()+re-render sozinho (v6.19 — ver comentário
+    // em DB._instalarWatchdogVirada)
+    DB._instalarWatchdogVirada();
     // Inicializar Relógio em Tempo Real
     initClock();
     buildNav();
