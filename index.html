@@ -1101,6 +1101,38 @@ let _ultimoErroConexao = null; // último erro de conexão capturado, para _fbCa
 try{ _pendentes = JSON.parse(localStorage.getItem(LS_PEND)||'{}'); }catch(e){ _pendentes = {}; }
 function _pendGravar(){ try{ localStorage.setItem(LS_PEND, JSON.stringify(_pendentes)); }catch(e){} }
 
+// Normaliza um valor para comparação de equivalência com o que o Firebase
+// Realtime Database devolve. O RTDB aplica transformações determinísticas ao
+// persistir/reler, que NÃO representam perda de dado, mas quebram qualquer
+// comparação textual bruta:
+//   • arrays viram objetos {0:..,1:..} (e vice-versa na leitura);
+//   • chaves cujo valor é undefined são descartadas;
+//   • a ordem das chaves de objeto não é preservada.
+// A normalização reduz ambos os lados à mesma forma canônica: undefined→ausente,
+// arrays e objetos numéricos tratados como equivalentes, chaves ordenadas.
+function _normFB(x){
+  if(x===undefined||x===null) return null;
+  if(Array.isArray(x)){
+    const o={};
+    x.forEach((el,i)=>{ if(el!==undefined) o[i]=_normFB(el); });
+    return o;
+  }
+  if(typeof x==='object'){
+    const out={};
+    Object.keys(x).sort().forEach(key=>{
+      const val=x[key];
+      if(val===undefined) return; // RTDB descarta undefined
+      out[key]=_normFB(val);
+    });
+    return out;
+  }
+  return x;
+}
+function _equivFB(a,b){
+  try{ return JSON.stringify(_normFB(a))===JSON.stringify(_normFB(b)); }
+  catch(e){ return false; }
+}
+
 // MUDANÇA DE SISTEMA: a faixa amarela de aviso agora é reservada só para dados
 // CRÍTICOS — onde a pessoa pode realmente perder algo importante se o app for
 // fechado sem confirmar (senha de acesso, escala/folga marcada, processo,
@@ -1235,6 +1267,7 @@ const DB={
   // Grava (ou remove, se v===undefined) e relê para confirmar; se falhar ou o
   // banco devolver algo diferente, mantém a chave pendente e tenta de novo.
   _gravarComConfirmacao(k, v, desc){
+    if(!DB._equivFB) DB._equivFB = _equivFB;
     const seq = (DB._seq=DB._seq||{}, DB._seq[k]=(DB._seq[k]||0)+1);
     _pendMarcar(k, desc||k);
     const ref = _fbDB.ref(`${FB_NODE}/${k}`);
@@ -1253,9 +1286,28 @@ const DB={
         // "v"; o que importa é se o banco já reflete o estado atual, não se
         // reflete exatamente esta chamada específica.
         const alvo = _mem[k];
-        const ok = JSON.stringify(lido===undefined?null:lido)===JSON.stringify(alvo===undefined?null:alvo);
-        if(ok){ _pendLimpar(k); delete _pendUltimoErro[k]; }
-        else { _pendUltimoErro[k]='banco devolveu valor diferente do enviado'; console.warn(`FB confirmação divergente [${k}]`); DB._reagendarEnvio(k,_mem[k],desc); }
+        // Comparação por EQUIVALÊNCIA SEMÂNTICA, não textual. O Realtime Database
+        // não devolve o dado no mesmo formato em que foi enviado: converte arrays
+        // esparsos em objetos com chaves numéricas, descarta campos com valor
+        // `undefined` e não preserva a ordem das chaves. Uma comparação por
+        // JSON.stringify falharia sempre nesses casos — mesmo com a gravação
+        // tendo sido persistida corretamente — mantendo a chave eternamente
+        // pendente e disparando a tarja indevidamente. _equivFB normaliza os dois
+        // lados antes de comparar, refletindo o que o banco de fato garante.
+        const ok = _equivFB(lido, alvo);
+        if(ok){ _pendLimpar(k); delete _pendUltimoErro[k]; delete DB._reenvN?.[k]; }
+        else {
+          // Divergência real e persistente: só é tratada como erro após algumas
+          // tentativas, para não alarmar por uma condição de corrida transitória
+          // (o listener realtime pode estar reescrevendo _mem[k] neste instante).
+          DB._reenvN = DB._reenvN||{};
+          DB._reenvN[k] = (DB._reenvN[k]||0)+1;
+          if(DB._reenvN[k] >= 3){
+            _pendUltimoErro[k]='o servidor não confirmou a gravação após 3 tentativas — os dados seguem salvos neste dispositivo';
+            console.warn(`FB confirmação divergente persistente [${k}]`, {lido, alvo});
+          }
+          DB._reagendarEnvio(k,_mem[k],desc);
+        }
       })
       .catch(e=>{
         if(DB._seq[k]!==seq) return; // idem: tentativa antiga, já superada
@@ -1492,6 +1544,13 @@ const DB={
       _fbDB.ref(`${FB_NODE}/${k}`).on('value',snap=>{
         if(!snap.exists()) return;
         const val=snap.val();
+        // Se esta chave tem uma gravação LOCAL ainda não confirmada, não deixamos
+        // o eco do listener sobrescrever _mem[k] no meio da confirmação: isso
+        // trocava o "alvo" da comparação em _gravarComConfirmacao e produzia
+        // divergências fantasma. Enquanto pendente, o estado local é a fonte da
+        // verdade; o listener volta a mandar assim que a pendência for limpa.
+        if(_pendentes[k] && _equivFB(val,_mem[k])) return; // eco do próprio dado já em memória
+        if(_pendentes[k] && !_equivFB(val,_mem[k])) return; // gravação local em curso: preserva _mem[k]
         _mem[k]=val;
         try{localStorage.setItem(LS_PFX+k,JSON.stringify(val));}catch(e){}
         // Atualizar UI em tempo real (sem recarregar a página)
