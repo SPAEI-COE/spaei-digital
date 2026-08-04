@@ -1042,9 +1042,21 @@ body.member-mode #bottom-nav{display:flex}
 // Em alguns navegadores/celulares com cookies/dados de site bloqueados,
 // localStorage/sessionStorage lançam SecurityError de forma SÍNCRONA.
 // Sem isto, o app inteiro falhava ao carregar (tela em branco).
-function safeGet(store,k){try{return store.getItem(k);}catch(e){return null;}}
-function safeSet(store,k,v){try{store.setItem(k,v);return true;}catch(e){return false;}}
-function safeRemove(store,k){try{store.removeItem(k);}catch(e){}}
+// CORRIGIDO (auditoria 04/08): as 3 funções abaixo recebiam a referência viva
+// window.localStorage/window.sessionStorage já resolvida no PONTO DE CHAMADA
+// (ex.: safeGet(localStorage,'x')) — mas em navegadores/dispositivos com
+// armazenamento bloqueado, o simples ATO DE LER window.localStorage já lança
+// SecurityError de forma síncrona (é um getter, não um objeto comum). Esse
+// lançamento acontecia ANTES de entrar na função, fora do try/catch — ou
+// seja, o wrapper criado justamente para evitar a tela em branco não
+// protegia o ponto mais crítico (config do Firebase, lido incondicionalmente
+// no topo do script) nem a restauração de sessão (chamada em todo boot).
+// Agora o tipo de armazenamento é passado como texto ('local'/'session') e
+// só é acessado DENTRO do try, então qualquer SecurityError é sempre contido.
+function _store(tipo){ return tipo==='session' ? window.sessionStorage : window.localStorage; }
+function safeGet(tipo,k){try{return _store(tipo).getItem(k);}catch(e){return null;}}
+function safeSet(tipo,k,v){try{_store(tipo).setItem(k,v);return true;}catch(e){return false;}}
+function safeRemove(tipo,k){try{_store(tipo).removeItem(k);}catch(e){}}
 const FB_DEFAULTS = {
   apiKey:            'AIzaSyD7jmRxODElRmpvVl8N6C8LUrNzTc-Ke7Q',
   authDomain:        'spaei-digital-coe.firebaseapp.com',
@@ -1055,20 +1067,20 @@ const FB_DEFAULTS = {
   appId:             '1:441045974967:web:4c3e685b0ca218cb363232',
 };
 const FIREBASE_CONFIG = {
-  apiKey:            safeGet(localStorage,'SPAEI_FB_apiKey')            || FB_DEFAULTS.apiKey,
-  authDomain:        safeGet(localStorage,'SPAEI_FB_authDomain')        || FB_DEFAULTS.authDomain,
-  databaseURL:       safeGet(localStorage,'SPAEI_FB_databaseURL')       || FB_DEFAULTS.databaseURL,
-  projectId:         safeGet(localStorage,'SPAEI_FB_projectId')         || FB_DEFAULTS.projectId,
-  storageBucket:     safeGet(localStorage,'SPAEI_FB_storageBucket')     || FB_DEFAULTS.storageBucket,
-  messagingSenderId: safeGet(localStorage,'SPAEI_FB_messagingSenderId') || FB_DEFAULTS.messagingSenderId,
-  appId:             safeGet(localStorage,'SPAEI_FB_appId')             || FB_DEFAULTS.appId,
+  apiKey:            safeGet('local','SPAEI_FB_apiKey')            || FB_DEFAULTS.apiKey,
+  authDomain:        safeGet('local','SPAEI_FB_authDomain')        || FB_DEFAULTS.authDomain,
+  databaseURL:       safeGet('local','SPAEI_FB_databaseURL')       || FB_DEFAULTS.databaseURL,
+  projectId:         safeGet('local','SPAEI_FB_projectId')         || FB_DEFAULTS.projectId,
+  storageBucket:     safeGet('local','SPAEI_FB_storageBucket')     || FB_DEFAULTS.storageBucket,
+  messagingSenderId: safeGet('local','SPAEI_FB_messagingSenderId') || FB_DEFAULTS.messagingSenderId,
+  appId:             safeGet('local','SPAEI_FB_appId')             || FB_DEFAULTS.appId,
 };
 // Versão do app: ÚNICA fonte de verdade. Usada tanto nos textos exibidos na
 // tela (título, login, config) quanto para invalidar o cache do Service
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.19';
+const APP_VERSAO = '6.20';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1538,7 +1550,22 @@ const DB={
     this.set('BOOT',1);
   },
 
+  // CORRIGIDO (auditoria 04/08): esta função é chamada toda vez que DB.init()
+  // termina com sucesso — e DB.init() roda de novo em vários casos reais e já
+  // previstos no próprio app: queda e volta de rede, "Salvar" no painel de
+  // configuração do Firebase, e "Resetar Dados". Diferente das outras duas
+  // rotinas de instalação única deste mesmo arquivo (_instalarReconexaoAutomatica
+  // e _instalarWatchdogVirada, ambas já com trava contra reinstalação), esta
+  // não tinha trava — cada nova chamada ANEXAVA um .on('value') A MAIS por
+  // cima dos anteriores, sem nunca desligar os antigos (o SDK do Firebase
+  // também resume listeners existentes sozinho após uma queda de conexão, então
+  // reanexar nunca era necessário para o funcionamento — só juntava peso).
+  // Confirmado por teste: depois de uma 2ª chamada, uma única atualização de
+  // dado disparava a mesma lógica 2x; num aparelho que reconecta várias vezes
+  // ao longo do dia (tablet circulando pelo prédio), isso cresce sem limite.
   _listenRealtime(){
+    if(this._realtimeInstalado) return;
+    this._realtimeInstalado = true;
     const REALTIME=['efetivo','escalaSemanas','envios','processos','avisos','tokens','pins','admSenhas'];
     REALTIME.forEach(k=>{
       _fbDB.ref(`${FB_NODE}/${k}`).on('value',snap=>{
@@ -1676,7 +1703,7 @@ function abrirConfiguracaoFirebase(){
     ].map(([k,lbl,ph])=>`
     <div class="form-group">
       <label class="form-lbl">${lbl}</label>
-      <input class="fb-inp-full" id="fb-${k}" value="${escHtml(safeGet(localStorage,'SPAEI_FB_'+k)||cfg[k]||'')}" placeholder="${ph}">
+      <input class="fb-inp-full" id="fb-${k}" value="${escHtml(safeGet('local','SPAEI_FB_'+k)||cfg[k]||'')}" placeholder="${ph}">
     </div>`).join('')}
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="Modal.close()">Cancelar</button>
@@ -1690,8 +1717,8 @@ async function salvarConfigFirebase(){
   if(!db){alert('O campo "Database URL" é obrigatório.');return;}
   campos.forEach(k=>{
     const v=document.getElementById('fb-'+k).value.trim();
-    if(v) safeSet(localStorage,'SPAEI_FB_'+k,v);
-    else safeRemove(localStorage,'SPAEI_FB_'+k);
+    if(v) safeSet('local','SPAEI_FB_'+k,v);
+    else safeRemove('local','SPAEI_FB_'+k);
     FIREBASE_CONFIG[k]=v;
   });
   Modal.close();
@@ -2872,8 +2899,8 @@ const Auth={
     // que fecha o navegador. Membro comum: sessão some ao fechar (sessionStorage), por
     // segurança padrão em aparelho que pode ser compartilhado.
     const persistente = !!(militar.admin||militar.chefe);
-    safeSet(persistente?localStorage:sessionStorage, this.SESSION_KEY, JSON.stringify(this.user));
-    safeRemove(persistente?sessionStorage:localStorage, this.SESSION_KEY); // limpa resquício do outro storage, se houver
+    safeSet(persistente?'local':'session', this.SESSION_KEY, JSON.stringify(this.user));
+    safeRemove(persistente?'session':'local', this.SESSION_KEY); // limpa resquício do outro storage, se houver
     const logs=DB.get('logs')||[];
     logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
       tipo:'LOGIN',desc:`${militar.posto} ${militar.nome} acessou (RG ${militar.rg})`});
@@ -3003,8 +3030,8 @@ const Auth={
 
   logout(){
     if(!confirm('Deseja sair do SPAEI DIGITAL?'))return;
-    safeRemove(sessionStorage,this.SESSION_KEY);
-    safeRemove(localStorage,this.SESSION_KEY);
+    safeRemove('session',this.SESSION_KEY);
+    safeRemove('local',this.SESSION_KEY);
     this.user=null;
     document.body.classList.remove('member-mode');
     const _bn=document.getElementById('bottom-nav');if(_bn)_bn.innerHTML='';
@@ -3020,7 +3047,7 @@ const Auth={
   },
 
   restore(){
-    const raw=safeGet(localStorage,this.SESSION_KEY) || safeGet(sessionStorage,this.SESSION_KEY);
+    const raw=safeGet('local',this.SESSION_KEY) || safeGet('session',this.SESSION_KEY);
     if(raw){this.user=JSON.parse(raw);return true;}
     return false;
   }
