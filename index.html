@@ -1080,7 +1080,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.20';
+const APP_VERSAO = '6.21';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -2766,6 +2766,11 @@ async function sha256(txt){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 function uid(){return crypto.randomUUID().replace(/-/g,'')}
+// normRG: normalização ÚNICA e centralizada de RG PM — remove tudo que não for dígito
+// (pontos, hífens, espaços internos/externos, caracteres invisíveis). Usada em TODO
+// ponto que compara ou indexa por RG, para eliminar falsos "RG não encontrado".
+// Mesma função e mesmo motivo do fix aplicado no P1 DIGITAL COE (repo irmão, mesmo bug).
+function normRG(v){ return String(v==null?'':v).replace(/\D/g,''); }
 function randTok(){
   const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from({length:8},()=>c[Math.floor(Math.random()*c.length)]).join('');
@@ -2779,23 +2784,27 @@ const Auth={
   SESSION_KEY:'SPAEI4_SESSION',
 
   async login(){
-    const rg=document.getElementById('l-rg').value.trim();
+    const rgInput=document.getElementById('l-rg').value.trim();
     const senha=document.getElementById('l-tok').value.trim();
     const btn=document.getElementById('l-btn');
     const err=document.getElementById('l-err');
     err.style.display='none';
 
-    if(!rg){this.showErr('Informe o RG / número funcional.');return;}
+    if(!rgInput){this.showErr('Informe o RG / número funcional.');return;}
     btn.disabled=true;
     btn.innerHTML='<span class="spin">⟳</span> VERIFICANDO...';
 
     const efetivo=DB.get('efetivo')||[];
-    const militar=efetivo.find(e=>e.rg===rg);
+    const rgKey=normRG(rgInput);
+    const militar=efetivo.find(e=>normRG(e.rg)===rgKey);
     if(!militar){
       await new Promise(r=>setTimeout(r,700));
       this.showErr('RG não encontrado. Contate o administrador.');
       btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';return;
     }
+    // A partir daqui usa SEMPRE o RG canônico gravado no cadastro (militar.rg) como
+    // chave — nunca o texto bruto digitado — para não divergir de admSenhas/pins/logs.
+    const rg=militar.rg;
 
     await new Promise(r=>setTimeout(r,400));
 
@@ -5154,7 +5163,7 @@ ${extra||''}
     const ef=DB.get('efetivo')||[];
 
     // Verificar RG duplicado (exceto se está editando o mesmo)
-    const dup=ef.find(e=>e.rg===rg&&e.id!==id);
+    const dup=ef.find(e=>normRG(e.rg)===rg&&e.id!==id);
     if(dup){alert(`RG ${rg} já cadastrado para ${dup.nome}.`);return;}
 
     const novoMembro={
@@ -5382,10 +5391,10 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   });
   // Ajusta dinamicamente o rótulo/dica do campo conforme o RG digitado
   document.getElementById('l-rg').addEventListener('input',function(){
-    const rg=this.value.trim();
+    const rg=normRG(this.value.trim());
     const lbl=document.getElementById('l-senha-lbl');
     const hint=document.getElementById('l-tok-hint');
-    const militar=(DB.get('efetivo')||[]).find(e=>e.rg===rg);
+    const militar=(DB.get('efetivo')||[]).find(e=>normRG(e.rg)===rg);
     if(militar&&(militar.admin||militar.chefe)){
       const admSenhas=DB.get('admSenhas')||{};
       if(admSenhas[rg]&&admSenhas[rg].ativo){
