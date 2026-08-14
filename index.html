@@ -1093,7 +1093,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.21';
+const APP_VERSAO = '6.22';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1140,16 +1140,24 @@ function _normFB(x){
   if(Array.isArray(x)){
     const o={};
     x.forEach((el,i)=>{ if(el!==undefined) o[i]=_normFB(el); });
-    return o;
+    // RTDB NÃO armazena array/objeto vazio: gravar [] ou {} equivale a REMOVER
+    // o nó (a releitura devolve snap.exists()===false, ou seja, "undefined").
+    // Sem esta linha, um array local esvaziado (ex.: excluir o último processo)
+    // nunca batia com o "undefined" devolvido pelo banco após a gravação real
+    // ter funcionado — gerando divergência PERSISTENTE (nunca confirma) e o
+    // aviso "servidor não confirmou a gravação após 3 tentativas" mesmo com o
+    // dado corretamente vazio nos dois lados. BUG CONFIRMADO E CORRIGIDO (14/08).
+    return Object.keys(o).length ? o : null;
   }
   if(typeof x==='object'){
     const out={};
     Object.keys(x).sort().forEach(key=>{
       const val=x[key];
       if(val===undefined) return; // RTDB descarta undefined
-      out[key]=_normFB(val);
+      const n=_normFB(val);
+      if(n!==null) out[key]=n; // idem acima, um nível abaixo: sub-contêiner vazio == campo ausente
     });
-    return out;
+    return Object.keys(out).length ? out : null;
   }
   return x;
 }
@@ -1582,8 +1590,19 @@ const DB={
     const REALTIME=['efetivo','escalaSemanas','envios','processos','avisos','tokens','pins','admSenhas'];
     REALTIME.forEach(k=>{
       _fbDB.ref(`${FB_NODE}/${k}`).on('value',snap=>{
-        if(!snap.exists()) return;
-        const val=snap.val();
+        // snap.exists()===false pode significar duas coisas bem diferentes:
+        // (a) o nó nunca foi gravado (app recém-instalado, ainda sincronizando
+        //     pela 1ª vez); ou (b) o nó FOI esvaziado de propósito (ex.: excluir
+        //     o último processo/aviso deixa a lista com []) — o RTDB não guarda
+        //     contêiner vazio, então as duas situações parecem idênticas no ar.
+        // Ignorar sempre (comportamento antigo) tratava (b) como (a): outros
+        // aparelhos conectados nunca recebiam a atualização e ficavam presos
+        // mostrando os itens antigos até um reload manual. Como o app já tem
+        // outra proteção (linhas abaixo) contra sobrescrever gravação LOCAL
+        // pendente, é seguro sempre propagar — só voltamos com "não existe"
+        // depois que o próprio app já terminou o boot/sincronização inicial.
+        if(!snap.exists() && !_fbSynced) return; // ainda sincronizando pela 1ª vez: não há o que propagar
+        const val=snap.exists()?snap.val():(Array.isArray(_mem[k])?[]:(_mem[k]&&typeof _mem[k]==='object'?{}:null));
         // Se esta chave tem uma gravação LOCAL ainda não confirmada, não deixamos
         // o eco do listener sobrescrever _mem[k] no meio da confirmação: isso
         // trocava o "alvo" da comparação em _gravarComConfirmacao e produzia
