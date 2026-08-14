@@ -333,15 +333,15 @@ tr:hover td{background:var(--hover)}
   border:1px solid rgba(26,27,176,0.28);border-radius:20px;padding:3px 10px;
   font-size:10px;font-weight:700;color:var(--cyan)}
 .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:12px}
-.mini-day{border:1px solid var(--border2);border-radius:9px;padding:7px 3px;text-align:center;background:var(--card2)}
-.mini-day.hoje{background:rgba(26,27,176,0.2);border-color:rgba(53,56,212,0.5);border-width:2px}
-.mini-day-lbl{font-size:9px;font-weight:700}
-.mini-day.hoje .mini-day-lbl{color:var(--cyan)}
-.mini-day:not(.hoje) .mini-day-lbl{color:var(--muted)}
-.mini-day-dt{font-size:9px;margin-bottom:3px}
-.mini-day.hoje .mini-day-dt{color:var(--cyan);opacity:.8}
-.mini-day:not(.hoje) .mini-day-dt{color:var(--muted)}
-.mini-cnt{font-size:9px;font-weight:700}
+.mini-day{border:1px solid #e4e8ef;border-radius:9px;padding:8px 3px;text-align:center;background:linear-gradient(158deg,#fbfcfe,#eef1f7 45%,#e1e6ef)}
+.mini-day.hoje{background:linear-gradient(158deg,#fff8e1,#fdf1c7 45%,#f5e3a0);border-color:#c8aa00;border-width:2px}
+.mini-day-lbl{font-size:10px;font-weight:800}
+.mini-day.hoje .mini-day-lbl{color:#8a5300}
+.mini-day:not(.hoje) .mini-day-lbl{color:#212734}
+.mini-day-dt{font-size:10px;margin-bottom:3px}
+.mini-day.hoje .mini-day-dt{color:#8a5300;opacity:.85}
+.mini-day:not(.hoje) .mini-day-dt{color:#4a5262}
+.mini-cnt{font-size:10px;font-weight:800}
 
 /* ── MODAL ── */
 .overlay{display:none;position:fixed;inset:0;background:rgba(4,0,63,.7);z-index:9999;
@@ -840,12 +840,12 @@ body.member-mode #bottom-nav{display:flex}
 .dp-sla-lbl{font-size:9px;color:var(--muted);font-weight:700;margin-top:2px}
 
 /* responsável carga */
-.dp-resp-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;margin-bottom:4px;background:var(--card2);border:1px solid var(--border)}
+.dp-resp-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;margin-bottom:4px;background:linear-gradient(158deg,#fbfcfe,#eef1f7 45%,#e1e6ef);border:1px solid #e4e8ef}
 .dp-resp-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   font-weight:800;font-size:12px;flex-shrink:0}
-.dp-resp-nome{font-size:12px;font-weight:700;color:var(--text);flex:1}
-.dp-resp-count{font-family:'Oswald',sans-serif;font-size:18px;font-weight:700;color:var(--cyan)}
-.dp-resp-minibar{height:4px;border-radius:3px;margin-top:4px;transition:width .6s}
+.dp-resp-nome{font-size:12px;font-weight:700;color:#0b0d12;flex:1}
+.dp-resp-count{font-family:'Oswald',sans-serif;font-size:18px;font-weight:700;color:#09008d}
+.dp-resp-minibar{height:6px;border-radius:4px;margin-top:5px;transition:width .6s;background:#e4e8ef}
 
 /* linha separadora de seção */
 .dp-section-head{display:flex;align-items:center;gap:12px;margin:20px 0 12px}
@@ -5662,7 +5662,7 @@ Render.dashproc = function(){
 
   // ── Responsáveis ────────────────────────────────────────────────────────
   function respCards(){
-    const COLORS=['#1a1bb0','#1f9d55','#c8aa00','#7c5cbf','#c77700','#3538d4','#c0392b'];
+    const COLORS=['#09008d','#13703e','#705f00','#7c5cbf','#8a5300','#c0392b','#212734'];
     const entries = Object.entries(porResp).sort((a,b)=>b[1]-a[1]).slice(0,8);
     const maxV = Math.max(...entries.map(([,v])=>v),1);
     return entries.map(([r,v],i)=>{
@@ -5670,10 +5670,10 @@ Render.dashproc = function(){
       const ini=(r.split(' ').filter(w=>w.length>2)[0]||r).slice(0,2).toUpperCase();
       const pct=Math.round((v/maxV)*100);
       return `<div class="dp-resp-row">
-        <div class="dp-resp-avatar" style="background:${col}22;border:1.5px solid ${col}44;color:${col}">${ini}</div>
+        <div class="dp-resp-avatar" style="background:${col}18;border:1.5px solid ${col}55;color:${col}">${ini}</div>
         <div style="flex:1;min-width:0">
           <div class="dp-resp-nome">${escHtml(r)}</div>
-          <div class="dp-resp-minibar" style="width:${pct}%;background:${col};opacity:.6"></div>
+          <div class="dp-resp-minibar" style="width:${pct}%;background:${col}"></div>
         </div>
         <div class="dp-resp-count" style="color:${col}">${v}</div>
       </div>`;
