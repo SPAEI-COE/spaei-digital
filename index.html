@@ -1997,15 +1997,15 @@ function _atualizarCdownBanner(){
 
 
 const ST_CFG={
-  'SERVIÇO':    {cls:'pill-serv',cor:'#13703e',bg:'#e3f5ea',borda:'#1f9d55',abr:'SRV'},
-  'FOLGA':      {cls:'pill-folg',cor:'#09008d',bg:'#e6e6f7',borda:'#3538d4',abr:'FLG'},
-  'DISPENSA':   {cls:'pill-disp',cor:'#8a5300',bg:'#fdf1e0',borda:'#c77700',abr:'DSP'},
-  'FÉRIAS':     {cls:'pill-fer', cor:'#5c4699',bg:'#efe9fa',borda:'#7c5cbf',abr:'FÉR'},
-  'LICENÇA':    {cls:'pill-lic', cor:'#7f2e21',bg:'#fbe7e4',borda:'#c0392b',abr:'LIC'},
-  'SOBREAVISO': {cls:'pill-sob', cor:'#09008d',bg:'#e6e6f7',borda:'#1a1bb0',abr:'SOB',adminOnly:true},
-  'A_CRITERIO': {cls:'pill-chf', cor:'#7c5cbf',bg:'#efe9fa',borda:'#7c5cbf',abr:'🎖️',chefeOnly:true},
-  'LUTO':       {cls:'pill-lic', cor:'#212734',bg:'#f2f4f8',borda:'#4a5262',abr:'LUT'},
-  'OUTRO':      {cls:'pill-sob', cor:'#09008d',bg:'#e6e6f7',borda:'#1a1bb0',abr:'AFT'},
+  'SERVIÇO':    {cls:'pill-serv',cor:'#13703e',corDark:'#1f9d55',bg:'#e3f5ea',borda:'#1f9d55',abr:'SRV'},
+  'FOLGA':      {cls:'pill-folg',cor:'#09008d',corDark:'#898be6',bg:'#e6e6f7',borda:'#3538d4',abr:'FLG'},
+  'DISPENSA':   {cls:'pill-disp',cor:'#8a5300',corDark:'#c77700',bg:'#fdf1e0',borda:'#c77700',abr:'DSP'},
+  'FÉRIAS':     {cls:'pill-fer', cor:'#5c4699',corDark:'#a48dd2',bg:'#efe9fa',borda:'#7c5cbf',abr:'FÉR'},
+  'LICENÇA':    {cls:'pill-lic', cor:'#7f2e21',corDark:'#df7c71',bg:'#fbe7e4',borda:'#c0392b',abr:'LIC'},
+  'SOBREAVISO': {cls:'pill-sob', cor:'#09008d',corDark:'#898be6',bg:'#e6e6f7',borda:'#1a1bb0',abr:'SOB',adminOnly:true},
+  'A_CRITERIO': {cls:'pill-chf', cor:'#7c5cbf',corDark:'#a48dd2',bg:'#efe9fa',borda:'#7c5cbf',abr:'🎖️',chefeOnly:true},
+  'LUTO':       {cls:'pill-lic', cor:'#212734',corDark:'#cfd4dc',bg:'#f2f4f8',borda:'#4a5262',abr:'LUT'},
+  'OUTRO':      {cls:'pill-sob', cor:'#09008d',corDark:'#898be6',bg:'#e6e6f7',borda:'#1a1bb0',abr:'AFT'},
 };
 const PR_CFG={
   'EM ANDAMENTO':      {cls:'pill-and', cor:'#09008d'},
@@ -2227,8 +2227,8 @@ const Drawer={
     if(type==='sobreaviso'){
       return`
       <div class="drw-sum">
-        <div class="drw-s" style="border-color:#1a1bb055;color:#09008d">📡 Sobreaviso: ${sobravisoDrawer.length}</div>
-        <div class="drw-s" style="border-color:#06006055;color:#060060">Total Efetivo: ${ef.length}</div>
+        <div class="drw-s" style="border-color:#1a1bb055;color:#898be6">📡 Sobreaviso: ${sobravisoDrawer.length}</div>
+        <div class="drw-s" style="border-color:#06006055;color:#898be6">Total Efetivo: ${ef.length}</div>
       </div>
       <div style="background:#e6e6f7;border:1px solid #1a1bb0;border-radius:8px;padding:9px 12px;font-size:11px;color:#09008d;margin-bottom:10px">
         📡 Militares em <strong>sobreaviso</strong>: disponíveis e acionáveis, porém fora da unidade.
@@ -2258,10 +2258,10 @@ const Drawer={
       ef.forEach(m=>{porPosto[m.posto]=(porPosto[m.posto]||0)+1;});
       return`
       <div class="drw-sum">
-        <div class="drw-s" style="border-color:#06006055;color:#060060">Total: ${ef.length}</div>
-        ${chefes.length?`<div class="drw-s" style="border-color:#7c5cbf55;color:#7c5cbf">Chefe(s): ${chefes.length}</div>`:''}
-        <div class="drw-s" style="border-color:#1f9d5555;color:#13703e">Orgânicos: ${org.length}</div>
-        <div class="drw-s" style="border-color:#c7770055;color:#8a5300">Adidos: ${adidos.length}</div>
+        <div class="drw-s" style="border-color:#06006055;color:#898be6">Total: ${ef.length}</div>
+        ${chefes.length?`<div class="drw-s" style="border-color:#7c5cbf55;color:#a48dd2">Chefe(s): ${chefes.length}</div>`:''}
+        <div class="drw-s" style="border-color:#1f9d5555;color:#1f9d55">Orgânicos: ${org.length}</div>
+        <div class="drw-s" style="border-color:#c7770055;color:#c77700">Adidos: ${adidos.length}</div>
       </div>
       <input class="drw-search" placeholder="🔍 Pesquisar militar..." oninput="Drawer._filter(this,'drw-list-ef')">
       <div id="drw-list-ef">
@@ -2292,8 +2292,8 @@ const Drawer={
     if(type==='presentes'){
       return`
       <div class="drw-sum">
-        <div class="drw-s" style="border-color:#1f9d5555;color:#13703e">Em Serviço: ${presentes.length}</div>
-        <div class="drw-s" style="border-color:#06006055;color:#060060">Total Efetivo: ${ef.length}</div>
+        <div class="drw-s" style="border-color:#1f9d5555;color:#1f9d55">Em Serviço: ${presentes.length}</div>
+        <div class="drw-s" style="border-color:#06006055;color:#898be6">Total Efetivo: ${ef.length}</div>
       </div>
       <input class="drw-search" placeholder="🔍 Pesquisar..." oninput="Drawer._filter(this,'drw-list-pres')">
       ${presentes.length===0?'<div class="drw-empty">Nenhum militar em serviço hoje.</div>':''}
@@ -2317,10 +2317,10 @@ const Drawer={
       ausentes.forEach(({m,st})=>{if(!grupos[st])grupos[st]=[];grupos[st].push(m);});
       return`
       <div class="drw-sum">
-        <div class="drw-s" style="border-color:#c0392b55;color:#c0392b">Ausentes: ${ausentes.length}</div>
+        <div class="drw-s" style="border-color:#c0392b55;color:#df7c71">Ausentes: ${ausentes.length}</div>
         ${Object.entries(grupos).map(([st,ms])=>{
           const sc=ST_CFG[st]||{};
-          return`<div class="drw-s" style="border-color:${sc.borda||'#212734'}55;color:${sc.cor||'#212734'}">${st}: ${ms.length}</div>`;
+          return`<div class="drw-s" style="border-color:${sc.borda||'#212734'}55;color:${sc.corDark||'#cfd4dc'}">${st}: ${ms.length}</div>`;
         }).join('')}
       </div>
       <input class="drw-search" placeholder="🔍 Pesquisar..." oninput="Drawer._filter(this,'drw-list-aus')">
@@ -2348,8 +2348,8 @@ const Drawer={
       const conc=proc.filter(p=>p.status==='CONCLUÍDO');
       return`
       <div class="drw-sum">
-        <div class="drw-s" style="border-color:#09008d55;color:#09008d">Pendentes: ${pend.length}</div>
-        <div class="drw-s" style="border-color:#1f9d5555;color:#13703e">Concluídos: ${conc.length}</div>
+        <div class="drw-s" style="border-color:#09008d55;color:#898be6">Pendentes: ${pend.length}</div>
+        <div class="drw-s" style="border-color:#1f9d5555;color:#1f9d55">Concluídos: ${conc.length}</div>
         <div class="drw-s">Total: ${proc.length}</div>
       </div>
       <input class="drw-search" placeholder="🔍 Pesquisar processo..." oninput="Drawer._filter(this,'drw-list-proc')">
@@ -2382,8 +2382,8 @@ const Drawer={
       return`
       <div class="drw-sum">
         <div class="drw-s" style="border-color:#c8aa0055;color:#c8aa00">Total SEI: ${seiP.length}</div>
-        <div class="drw-s" style="border-color:#c0392b55;color:#c0392b">Pendentes: ${pend.length}</div>
-        <div class="drw-s" style="border-color:#1f9d5555;color:#13703e">Concluídos: ${conc.length}</div>
+        <div class="drw-s" style="border-color:#c0392b55;color:#df7c71">Pendentes: ${pend.length}</div>
+        <div class="drw-s" style="border-color:#1f9d5555;color:#1f9d55">Concluídos: ${conc.length}</div>
       </div>
       <input class="drw-search" placeholder="🔍 Pesquisar SEI..." oninput="Drawer._filter(this,'drw-list-sei')">
       <div id="drw-list-sei">
@@ -2418,7 +2418,7 @@ const Drawer={
       const lidos=av.filter(a=>a.lido);
       return`
       <div class="drw-sum">
-        <div class="drw-s" style="border-color:#c0392b55;color:#c0392b">Não lidos: ${nLidos.length}</div>
+        <div class="drw-s" style="border-color:#c0392b55;color:#df7c71">Não lidos: ${nLidos.length}</div>
         <div class="drw-s">Total: ${av.length}</div>
       </div>
       <input class="drw-search" placeholder="🔍 Pesquisar aviso..." oninput="Drawer._filter(this,'drw-list-av')">
@@ -2455,7 +2455,7 @@ const Drawer={
       lista.forEach(({st})=>{porStatus[st]=(porStatus[st]||0)+1;});
       return`
       <div class="drw-sum">
-        ${Object.entries(porStatus).map(([st,n])=>{const sc=ST_CFG[st]||{};return`<div class="drw-s" style="border-color:${(sc.borda||'#212734')}55;color:${sc.cor||'#212734'}">${st}: ${n}</div>`;}).join('')}
+        ${Object.entries(porStatus).map(([st,n])=>{const sc=ST_CFG[st]||{};return`<div class="drw-s" style="border-color:${(sc.borda||'#212734')}55;color:${sc.corDark||'#cfd4dc'}">${st}: ${n}</div>`;}).join('')}
       </div>
       <input class="drw-search" placeholder="🔍 Pesquisar..." oninput="Drawer._filter(this,'drw-list-escdia')">
       <div id="drw-list-escdia">
@@ -2481,8 +2481,8 @@ const Drawer={
       const concR=todos.filter(p=>p.status==='CONCLUÍDO');
       return`
       <div class="drw-sum">
-        <div class="drw-s" style="border-color:#09008d55;color:#09008d">Ativos: ${pendR.length}</div>
-        <div class="drw-s" style="border-color:#1f9d5555;color:#13703e">Concluídos: ${concR.length}</div>
+        <div class="drw-s" style="border-color:#09008d55;color:#898be6">Ativos: ${pendR.length}</div>
+        <div class="drw-s" style="border-color:#1f9d5555;color:#1f9d55">Concluídos: ${concR.length}</div>
       </div>
       ${todos.length===0?'<div class="drw-empty">Nenhum processo para este responsável.</div>':''}
       <div id="drw-list-procresp">
