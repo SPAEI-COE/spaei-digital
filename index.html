@@ -1104,7 +1104,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.33';
+const APP_VERSAO = '6.34';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -2592,12 +2592,16 @@ const Escala={
     const key=weekKeyOpt||this.chaveAtual();
     const chaveReal=this._achaRG(envios,rg);
     const enviouDeVerdade=!!(chaveReal!==undefined&&envios[chaveReal][key]&&!envios[chaveReal][key].desbloqueado);
-    // Regularização pelo ADM (isentoPorAdm) conta como "enviado" pra QUALQUER
-    // lugar que consulte isEnviado() — lista "Aguardando", contador de %,
-    // badge ENVIADO/OK — nunca pode sobrar alerta de pendência depois que
-    // o ADM já resolveu a situação do militar por qualquer um dos 2 meios
-    // (editar célula ou o botão "✅ Regularizar").
-    return enviouDeVerdade||isentoPorAdm(rg,key);
+    // Regularização pelo ADM (isentoPorAdm) OU afastamento formal (Afast —
+    // LTS/férias/licença/luto/dispensa/outro) contam como "enviado" pra
+    // QUALQUER lugar que consulte isEnviado() — lista "Aguardando", contador
+    // de %, badge ENVIADO/OK — nunca pode sobrar alerta de pendência depois
+    // que o ADM já resolveu a situação, ou quando ela nem precisa de ação
+    // porque o militar já tem afastamento cobrindo a semana.
+    if(enviouDeVerdade) return true;
+    if(isentoPorAdm(rg,key)) return true;
+    if(typeof Afast!=='undefined'&&Afast.isIsento(rg,key)) return true;
+    return false;
   },
 
   // Registra envio da escala pelo membro
@@ -2699,7 +2703,10 @@ const Afast={
     if(!dias) return this.ativoHoje(rg);
     return dias.some(d=>this._dentroPeriodo(a,d.jsDate));
   },
-  isIsento(rg,weekKeyOpt){ return this.ativoHoje(rg) || this.isentoNaSemana(rg,weekKeyOpt||Escala.chaveAtual()); },
+  isIsento(rg,weekKeyOpt){
+    if(weekKeyOpt) return this.isentoNaSemana(rg,weekKeyOpt);
+    return this.ativoHoje(rg) || this.isentoNaSemana(rg,Escala.chaveAtual());
+  },
 
   _dentroPeriodo(a,jsDate){
     const ini=_parseDataBR(a.dataIni); if(!ini)return false;
@@ -3464,8 +3471,8 @@ const Render={
     const envios=DB.get('envios')||{};
     const enviadosList=ef.filter(m=>!m.chefe&&Escala.isEnviado(m.rg,chaveProx));
     const naoEnviadosList=ef.filter(m=>!m.chefe&&!Escala.isEnviado(m.rg,chaveProx));
-    const pctEnvio=ef.filter(m=>!m.admin&&!m.chefe).length>0
-      ?Math.round(enviadosList.length/ef.filter(m=>!m.admin&&!m.chefe).length*100):0;
+    const pctEnvio=ef.filter(m=>!m.chefe).length>0
+      ?Math.round(enviadosList.length/ef.filter(m=>!m.chefe).length*100):0;
 
     // Distribuição diária da próxima semana
     const allStProx=ef.reduce((acc,m)=>{acc[m.rg]=Escala.getStatusByKey(m.rg,chaveProx);return acc;},{});
