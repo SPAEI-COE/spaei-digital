@@ -3782,7 +3782,7 @@ const Render={
           <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)">
             <span style="width:9px;height:9px;border-radius:2px;background:${v.cor};display:inline-block"></span>${k==='A_CRITERIO'?'A CRITÉRIO (Chefe)':k==='SOBREAVISO'?'📡 SOBREAVISO':k}
           </span>`).join('')}
-          <span style="margin-left:auto;font-size:11px;color:${user.admin?'#8f7a00':'var(--muted)'};font-style:italic">
+          <span style="margin-left:auto;font-size:11px;color:${user.admin?'#c8aa00':'var(--muted)'};font-style:italic">
             ${user.admin?'Clique em qualquer célula para editar':memEnviou?'Somente leitura':!prazoVencido?'Clique na célula para marcar':'Prazo encerrado'}
           </span>
         </div>
@@ -4808,12 +4808,12 @@ ${extra||''}
         if(!lista.length) return '';
         const isChefeSec=lista.some(m=>m.chefe);
         return `
-        <div style="font-size:11px;font-weight:700;color:${isChefeSec?'#7c5cbf':'var(--muted)'};
+        <div style="font-size:11px;font-weight:700;color:${isChefeSec?'#a48dd2':'var(--muted)'};
           letter-spacing:.8px;padding:8px 12px 4px;
           background:${isChefeSec?'rgba(124,92,191,.08)':'var(--thead)'};
           border-bottom:1px solid var(--border)">
           ${titulo} (${lista.length})
-          ${isChefeSec?`<span style="font-size:9px;font-weight:600;color:#7c5cbf88;margin-left:8px">● sempre no topo · a seu critério · ADM pode alterar</span>`:''}
+          ${isChefeSec?`<span style="font-size:9px;font-weight:600;color:#a48dd288;margin-left:8px">● sempre no topo · a seu critério · ADM pode alterar</span>`:''}
         </div>
         ${lista.map(m=>`
         <tr style="border-bottom:1px solid var(--border);${m.chefe?'background:rgba(124,92,191,.05)':''}">
@@ -4825,7 +4825,7 @@ ${extra||''}
           <td style="font-size:10px;color:var(--muted)">${escHtml(m.funcao||'PROJETOS')}</td>
           <td style="text-align:center">
             ${m.chefe
-              ?`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#7c5cbf">
+              ?`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#a48dd2">
                   <span class="chefe-badge">👔 CHEFE</span>
                 </span>`
               :`<span style="font-size:10px;font-weight:700;color:${corTag}">${tagTxt}</span>`}
@@ -4863,9 +4863,9 @@ ${extra||''}
               <th>FUNÇÃO</th><th>PERFIL</th><th>AÇÕES</th>
             </tr></thead>
             <tbody>
-              ${tblMembros(chefes,  '👔 CHEFE / OFICIAIS — do mais antigo ao mais moderno',  '#7c5cbf', '● CHEFE')}
+              ${tblMembros(chefes,  '👔 CHEFE / OFICIAIS — do mais antigo ao mais moderno',  '#a48dd2', '● CHEFE')}
               ${tblMembros(admins,  '⭐ ADMINISTRADORES — do mais antigo ao mais moderno',    '#c8aa00',  '● ADMIN')}
-              ${tblMembros(membros, '👤 MEMBROS ORGÂNICOS — do mais antigo ao mais moderno',  '#13703e',  'ORGÂNICO')}
+              ${tblMembros(membros, '👤 MEMBROS ORGÂNICOS — do mais antigo ao mais moderno',  '#1f9d55',  'ORGÂNICO')}
               ${tblMembros(adidos,  '🔄 ADIDOS — do mais antigo ao mais moderno',             '#c77700',  'ADIDO')}
             </tbody>
           </table></div>
@@ -4938,7 +4938,7 @@ ${extra||''}
       box.innerHTML=`<div class="card">
         <div style="font-weight:700;font-size:14px;margin-bottom:12px;color:var(--text)">Log de Auditoria — Acessos e Alterações</div>
         ${logs.slice(0,50).map(l=>{
-          const logCor=l.tipo==='LOGIN'?'#1f9d55':l.tipo==='CRIAÇÃO'?'#1a1bb0':l.tipo==='TOKEN'?'#c77700':l.tipo==='PIN'?'#13703e':l.tipo==='ADM_SENHA'?'#8a5300':l.tipo==='EXCLUSÃO'?'#c0392b':'#7c5cbf';
+          const logCor=l.tipo==='LOGIN'?'#1f9d55':l.tipo==='CRIAÇÃO'?'#898be6':l.tipo==='TOKEN'?'#c77700':l.tipo==='PIN'?'#1f9d55':l.tipo==='ADM_SENHA'?'#c77700':l.tipo==='EXCLUSÃO'?'#df7c71':'#a48dd2';
           return`<div class="log-row" style="border-left:3px solid ${logCor}">
           <span class="log-dt">${escHtml(l.dt)}</span>
           <span class="log-tipo" style="color:${logCor}">${escHtml(l.tipo)}</span>
@@ -5953,11 +5953,11 @@ Render._dpDetail = function(id, src){
   // Linha do tempo simulada de fases
   const FASES=[
     {lbl:'Demanda Identificada (DFD)',     done:true,   date:p.criado||'—',                cor:'#1f9d55', obs:'Demanda formal registrada na SPAEI/COE.'},
-    {lbl:'Estudo Técnico Preliminar (ETP)',done:p.status!=='FASE PREPARATÓRIA'&&p.status!=='CONCLUÍDO'?false:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status),date:p.criado||'—',cor:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status)?'#1f9d55':'#212734',obs:'Análise de viabilidade e especificação técnica.'},
-    {lbl:'Termo de Referência (TR)',       done:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status),date:p.status==='FASE PREPARATÓRIA'?'—':p.criado||'—',cor:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status)?'#1f9d55':'#212734',obs:'Especificação detalhada do objeto e condições da contratação.'},
-    {lbl:'Autorização de Abertura',        done:['CONCLUÍDO','EM ANDAMENTO'].includes(p.status),date:p.status==='EM ANDAMENTO'||p.status==='CONCLUÍDO'?p.criado||'—':'—',cor:['CONCLUÍDO','EM ANDAMENTO'].includes(p.status)?'#1a1bb0':'#212734',obs:'Ordenador de despesas autoriza abertura do processo licitatório.'},
-    {lbl:'Em Andamento / Licitação',       done:p.status==='CONCLUÍDO',date:p.status==='EM ANDAMENTO'?'Em curso':p.status==='CONCLUÍDO'?p.prazo||'—':'—',cor:p.status==='CONCLUÍDO'?'#1f9d55':p.status==='EM ANDAMENTO'?'#1a1bb0':'#212734',obs:'Execução do processo licitatório ou contratação direta.'},
-    {lbl:'Contrato Assinado / Concluído',  done:p.status==='CONCLUÍDO',date:p.status==='CONCLUÍDO'?p.prazo||'—':'—',cor:p.status==='CONCLUÍDO'?'#1f9d55':'#212734',obs:'Processo encerrado com êxito.'},
+    {lbl:'Estudo Técnico Preliminar (ETP)',done:p.status!=='FASE PREPARATÓRIA'&&p.status!=='CONCLUÍDO'?false:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status),date:p.criado||'—',cor:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status)?'#1f9d55':'#cfd4dc',obs:'Análise de viabilidade e especificação técnica.'},
+    {lbl:'Termo de Referência (TR)',       done:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status),date:p.status==='FASE PREPARATÓRIA'?'—':p.criado||'—',cor:['CONCLUÍDO','EM ANDAMENTO','AGUARDANDO'].includes(p.status)?'#1f9d55':'#cfd4dc',obs:'Especificação detalhada do objeto e condições da contratação.'},
+    {lbl:'Autorização de Abertura',        done:['CONCLUÍDO','EM ANDAMENTO'].includes(p.status),date:p.status==='EM ANDAMENTO'||p.status==='CONCLUÍDO'?p.criado||'—':'—',cor:['CONCLUÍDO','EM ANDAMENTO'].includes(p.status)?'#898be6':'#cfd4dc',obs:'Ordenador de despesas autoriza abertura do processo licitatório.'},
+    {lbl:'Em Andamento / Licitação',       done:p.status==='CONCLUÍDO',date:p.status==='EM ANDAMENTO'?'Em curso':p.status==='CONCLUÍDO'?p.prazo||'—':'—',cor:p.status==='CONCLUÍDO'?'#1f9d55':p.status==='EM ANDAMENTO'?'#898be6':'#cfd4dc',obs:'Execução do processo licitatório ou contratação direta.'},
+    {lbl:'Contrato Assinado / Concluído',  done:p.status==='CONCLUÍDO',date:p.status==='CONCLUÍDO'?p.prazo||'—':'—',cor:p.status==='CONCLUÍDO'?'#1f9d55':'#cfd4dc',obs:'Processo encerrado com êxito.'},
   ];
 
   const timelineHtml = FASES.map((f,i)=>`
