@@ -249,21 +249,21 @@ a{text-decoration:none;color:inherit}
 
 /* ── PILLS / BADGES ── */
 .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap}
-.pill-serv{background:rgba(31,157,85,0.13);color:#1f9d55;border:1px solid rgba(31,157,85,0.22)}
-.pill-folg{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
-.pill-disp{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
-.pill-fer{background:rgba(124,92,191,0.13);color:#9d84d1;border:1px solid rgba(124,92,191,0.22)}
-.pill-lic{background:rgba(192,57,43,0.13);color:#c0392b;border:1px solid rgba(192,57,43,0.22)}
-.pill-and{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
-.pill-fase{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
-.pill-conc{background:rgba(31,157,85,0.13);color:#1f9d55;border:1px solid rgba(31,157,85,0.22)}
-.pill-ag{background:rgba(124,92,191,0.13);color:#9d84d1;border:1px solid rgba(124,92,191,0.22)}
-.pill-alta{background:rgba(192,57,43,0.13);color:#c0392b;border:1px solid rgba(192,57,43,0.22)}
-.pill-media{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
-.pill-baixa{background:rgba(31,157,85,0.13);color:#1f9d55;border:1px solid rgba(31,157,85,0.22)}
+.pill-serv{background:#e3f5ea;color:#13703e}
+.pill-folg{background:#e6e6f7;color:#09008d}
+.pill-disp{background:#fdf1e0;color:#8a5300}
+.pill-fer{background:#efe9fa;color:#5c4699}
+.pill-lic{background:#fbe7e4;color:#c0392b}
+.pill-and{background:#e6e6f7;color:#09008d}
+.pill-fase{background:#fdf1e0;color:#8a5300}
+.pill-conc{background:#e3f5ea;color:#13703e}
+.pill-ag{background:#efe9fa;color:#5c4699}
+.pill-alta{background:#fbe7e4;color:#c0392b}
+.pill-media{background:#fdf1e0;color:#8a5300}
+.pill-baixa{background:#e3f5ea;color:#13703e}
 .pill-urg{background:rgba(192,57,43,0.85);color:#fff;border:1px solid rgba(192,57,43,0.5)}
-.pill-norm{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
-.pill-chf{background:rgba(200,170,0,0.15);color:#c8aa00;border:1px solid rgba(200,170,0,0.35)}
+.pill-norm{background:#e6e6f7;color:#09008d}
+.pill-chf{background:#fdf6ea;color:#705f00}
 /* ── CHEFE ── */
 .chefe-topo-row{background:rgba(124,92,191,.05)!important}
 .chefe-topo-row td{border-left:none}
@@ -548,10 +548,10 @@ tr:hover td{background:var(--hover)}
 .alerta-ico{font-size:16px;flex-shrink:0;margin-top:1px}
 
 /* ── STATUS PILLS EXTRAS ── */
-.pill-lts{background:rgba(192,57,43,0.13);color:#c0392b;border:1px solid rgba(192,57,43,0.22)}
-.pill-ltspf{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
-.pill-disp2{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
-.pill-sob{background:rgba(26,27,176,0.15);color:#898be6;border:1px solid rgba(26,27,176,0.35)}
+.pill-lts{background:#fbe7e4;color:#c0392b}
+.pill-ltspf{background:#fdf1e0;color:#8a5300}
+.pill-disp2{background:#e6e6f7;color:#09008d}
+.pill-sob{background:#e6e6f7;color:#09008d;font-weight:800}
 
 /* ── ANIMAÇÕES ── */
 @keyframes pulseGreen{0%,100%{opacity:1}50%{opacity:.5}}
@@ -2305,7 +2305,7 @@ const Drawer={
               <div class="drw-row-nm">${m.chefe?'<span class="chefe-badge">👔</span> ':''}${escHtml(m.nome)}</div>
               <div class="drw-row-sub">${escHtml(m.posto)}${m.adido?' · ADIDO':''} · RG ${m.rg}</div>
             </div>
-            ${m.chefe?`<span style="font-size:9px;color:#7c5cbf;font-weight:700">🎖️ A critério</span>`:''}
+            ${m.chefe?`<span style="font-size:9px;color:#a48dd2;font-weight:700">🎖️ A critério</span>`:''}
           </div>
         </div>`).join('')}
       </div>`;
