@@ -2073,7 +2073,7 @@ function _htmlRadarEquipe(chefes,admins,membros,adidos){
   const TIERS=[
     {key:'chefe',  lista:chefes,  r:36,  cor:'#9d84d1',corD:'#5c4699',ico:'👔',lbl:'Chefia'},
     {key:'admin',  lista:admins,  r:74,  cor:'#dba030',corD:'#8a5300',ico:'⭐',lbl:'Administração'},
-    {key:'membro', lista:membros, r:112, cor:'#3538d4',corD:'#09008d',ico:'👤',lbl:'Membros'},
+    {key:'membro', lista:membros, r:112, cor:'#898be6',corD:'#09008d',ico:'👤',lbl:'Membros'},
     {key:'adido',  lista:adidos,  r:140, cor:'#dba030',corD:'#c77700',ico:'🔶',lbl:'Adidos'},
   ].filter(t=>t.lista.length>0);
   const rMax=TIERS.length?TIERS[TIERS.length-1].r:140;
@@ -4440,7 +4440,7 @@ const Render={
                       background:rgba(19,112,62,.1);border:1px solid rgba(19,112,62,.3);
                       border-radius:20px;padding:3px 10px;margin-bottom:7px">
                       <span>📢</span>
-                      <span style="font-size:10px;font-weight:700;color:#13703e">COLETIVO · TODO O EFETIVO</span>
+                      <span style="font-size:10px;font-weight:700;color:#1f9d55">COLETIVO · TODO O EFETIVO</span>
                     </div>`}
                 <div class="av-title">${escHtml(a.titulo)}</div>
               </div>
@@ -4573,7 +4573,7 @@ const Render={
     if(todosCb.checked&&marcados.length===document.querySelectorAll('.dest-cb').length){
       prev.style.background='rgba(19,112,62,.08)';
       prev.style.borderColor='rgba(19,112,62,.3)';
-      prev.style.color='#13703e';
+      prev.style.color='#1f9d55';
       prev.innerHTML='📢 Aviso coletivo — todo o efetivo receberá esta mensagem';
     } else {
       const nomes=marcados.map(c=>{
@@ -4836,10 +4836,10 @@ ${extra||''}
               ${Afast.hist(m.rg).length?`<button class="btn btn-ghost btn-sm" title="Histórico de afastamentos" onclick="Render._histAfast('${m.rg}','${m.nome.split(' ')[0]}')">📜</button>`:''}
               ${(m.admin||m.chefe)
                 ?((DB.get('admSenhas')||{})[m.rg]
-                  ?`<button class="btn btn-ghost btn-sm" title="Resetar senha pessoal do ADM" onclick="Render._resetarSenhaAdm('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#8a5300">🔐</button>`
+                  ?`<button class="btn btn-ghost btn-sm" title="Resetar senha pessoal do ADM" onclick="Render._resetarSenhaAdm('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#c77700">🔐</button>`
                   :`<button class="btn btn-ghost btn-sm" title="Aguardando 1º acesso (Token COE2026)" style="color:#cfd4dc;cursor:default">🔓</button>`)
                 :(DB.get('pins')||{})[m.rg]
-                  ?`<button class="btn btn-ghost btn-sm" title="Resetar senha do membro" onclick="Render._resetarPin('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#13703e">🔐</button>`
+                  ?`<button class="btn btn-ghost btn-sm" title="Resetar senha do membro" onclick="Render._resetarPin('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#1f9d55">🔐</button>`
                   :`<button class="btn btn-ghost btn-sm" title="Aguardando 1º acesso" style="color:#cfd4dc;cursor:default">🔓</button>`}
               ${(!m.admin&&!m.chefe&&Escala.isEnviado(m.rg))
                 ?`<button class="btn btn-ghost btn-sm" title="Desbloquear escala enviada" onclick="Render._desbloquearEscala('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#7c5cbf">🔓⚡</button>`
@@ -4880,12 +4880,12 @@ ${extra||''}
       const secTitle=(txt,cor)=>`<div style="font-size:11px;font-weight:700;color:${cor};letter-spacing:1px;padding:10px 14px 6px;background:var(--thead);border-bottom:1px solid var(--border);margin-top:10px;border-radius:8px 8px 0 0">${txt}</div>`;
 
       const admHTML=admins.length===0?'':`
-        ${secTitle('⭐ ADMINISTRADORES — SENHA PESSOAL','#8a5300')}
+        ${secTitle('⭐ ADMINISTRADORES — SENHA PESSOAL','#c77700')}
         ${admins.map(m=>{
           const ad=admSenhas[m.rg];
           const temSenhaPessoal=ad&&ad.ativo;
           const statusHTML=temSenhaPessoal
-            ?`<div style="color:#13703e;font-size:13px;font-weight:700;margin-top:3px">✅ Senha pessoal ativa — acesso só com RG + senha própria</div>
+            ?`<div style="color:#1f9d55;font-size:13px;font-weight:700;margin-top:3px">✅ Senha pessoal ativa — acesso só com RG + senha própria</div>
                  <div class="tok-dt">Criada em: ${ad.criado}</div>`
             :`<div style="color:#c77700;font-size:11px;font-weight:700;margin-top:2px">⏳ Ainda não criou senha pessoal — entra com RG + Token de Acesso (COE2026) e cria na hora</div>`;
           return`
@@ -4900,13 +4900,13 @@ ${extra||''}
         </div>`}).join('')}`;
 
       const memHTML=membros.length===0?'':`
-        ${secTitle('👤 MEMBROS — SENHA DE 6 DÍGITOS (PIN)','#13703e')}
+        ${secTitle('👤 MEMBROS — SENHA DE 6 DÍGITOS (PIN)','#1f9d55')}
         ${membros.map(m=>{const pd=pins[m.rg];return`
         <div class="tok-card" style="border-radius:0;border-left:3px solid #13703e">
           <div style="min-width:0;flex:1">
             <div class="tok-rg">${escHtml(m.posto)} ${escHtml(m.nome)}${m.adido?' <span style="color:#c77700;font-size:9px">(ADIDO)</span>':''}</div>
             ${pd
-              ?`<div style="color:#13703e;font-size:13px;font-weight:700;margin-top:3px">✅ Senha ativa</div>
+              ?`<div style="color:#1f9d55;font-size:13px;font-weight:700;margin-top:3px">✅ Senha ativa</div>
                  <div class="tok-dt">Criada em: ${pd.criado}</div>`
               :`<div style="color:#c77700;font-size:11px;font-weight:700;margin-top:3px">🔄 Aguardando 1º acesso — sem senha ainda</div>`}
           </div>
@@ -5126,21 +5126,21 @@ ${extra||''}
     const admSenhas=DB.get('admSenhas')||{};
     const ad=admSenhas[rg];
     if(!ad||!ad.ativo){
-      showMsg('⚠️ Você ainda não tem senha pessoal — saia e entre com RG + Token COE2026 para criar a primeira.','#c0392b');
+      showMsg('⚠️ Você ainda não tem senha pessoal — saia e entre com RG + Token COE2026 para criar a primeira.','#df7c71');
       return;
     }
-    if(!atual){showMsg('⚠️ Informe sua senha atual.','#c0392b');return;}
-    if(!/^\d{6}$/.test(nova)){showMsg('⚠️ A nova senha deve ter exatamente 6 dígitos numéricos.','#c0392b');return;}
-    if(nova!==nova2){showMsg('⚠️ A nova senha e a confirmação não conferem.','#c0392b');return;}
-    if(nova===atual){showMsg('⚠️ A nova senha deve ser diferente da atual.','#c0392b');return;}
+    if(!atual){showMsg('⚠️ Informe sua senha atual.','#df7c71');return;}
+    if(!/^\d{6}$/.test(nova)){showMsg('⚠️ A nova senha deve ter exatamente 6 dígitos numéricos.','#df7c71');return;}
+    if(nova!==nova2){showMsg('⚠️ A nova senha e a confirmação não conferem.','#df7c71');return;}
+    if(nova===atual){showMsg('⚠️ A nova senha deve ser diferente da atual.','#df7c71');return;}
 
     const hAtual=await sha256(ad.salt+atual);
-    if(hAtual!==ad.hash){showMsg('⚠️ Senha atual incorreta.','#c0392b');return;}
+    if(hAtual!==ad.hash){showMsg('⚠️ Senha atual incorreta.','#df7c71');return;}
 
     const salt=uid().slice(0,16);
     const hash=await sha256(salt+nova);
     admSenhas[rg]={hash,salt,criado:new Date().toLocaleDateString('pt-BR'),ativo:true};
-    showMsg('Salvando...','#4a5262');
+    showMsg('Salvando...','#cfd4dc');
     try{
       await DB.setAguardando('admSenhas',admSenhas,'Senha pessoal ADM (RG '+rg+')');
     }catch(e){
@@ -5157,7 +5157,7 @@ ${extra||''}
     document.getElementById('mb-senha-atual').value='';
     document.getElementById('mb-senha-nova').value='';
     document.getElementById('mb-senha-nova2').value='';
-    showMsg('✅ Senha alterada com sucesso!','#13703e');
+    showMsg('✅ Senha alterada com sucesso!','#1f9d55');
     Toast.success('🔐 Senha pessoal alterada com sucesso');
   },
 
