@@ -1104,7 +1104,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.29';
+const APP_VERSAO = '6.30';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -3975,7 +3975,9 @@ const Render={
                       ?`<span style="color:#13703e;font-weight:700">OK</span> <button style="margin-left:3px;font-size:9px;padding:2px 5px;border-radius:5px;
                           background:rgba(124,92,191,.1);color:#7c5cbf;border:1px solid rgba(124,92,191,.3);cursor:pointer"
                           onclick="Render._desbloquearEscala('${m.rg}','${m.nome.split(' ')[0]}')">desbloquear</button>`
-                      :isIrr?'<span style="color:#c0392b;font-weight:700">IRREG</span>'
+                      :isIrr?`<span style="color:#c0392b;font-weight:700">IRREG</span> ${user.admin?`<button style="margin-left:3px;font-size:9px;padding:2px 5px;border-radius:5px;
+                          background:rgba(31,157,85,.1);color:#1f9d55;border:1px solid rgba(31,157,85,.3);cursor:pointer"
+                          onclick="Render._regularizarAdm('${m.rg}','${m.nome.split(' ')[0]}')">✅ regularizar</button>`:''}`
                       :'<span style="color:var(--muted)">—</span>'}
                 </td>`:''}
               </tr>`;
@@ -4004,6 +4006,9 @@ const Render={
               <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
                 ${isChefe?`<span style="font-size:9px;color:#7c5cbf;font-weight:700;background:#efe9fa;padding:2px 8px;border-radius:10px">🎖️ A critério</span>`:''}
                 ${isIrr?'<span style="background:#c0392b;color:#fff;font-size:8px;font-weight:800;padding:2px 7px;border-radius:10px">IRREGULAR</span>':''}
+                ${isIrr&&user.admin?`<button style="font-size:8px;font-weight:800;padding:2px 7px;border-radius:10px;
+                    background:rgba(31,157,85,.12);color:#1f9d55;border:1px solid rgba(31,157,85,.35);cursor:pointer"
+                    onclick="Render._regularizarAdm('${m.rg}','${m.nome.split(' ')[0]}')">✅ regularizar</button>`:''}
                 ${envSem?'<span style="background:#e3f5ea;color:#13703e;font-size:8px;font-weight:800;padding:2px 7px;border-radius:10px">ENVIADO</span>':''}
                 ${!isChefe?`<span class="pill ${c.cls||''}">${stHoje}</span>`:''}
               </div>
@@ -4117,6 +4122,7 @@ const Render={
       if(!semanas[chaveKey][rg]){const _msc=(DB.get('efetivo')||[]).find(e=>e.rg===rg);semanas[chaveKey][rg]=_msc&&_msc.chefe?Array(7).fill('A_CRITERIO'):['SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','FOLGA','FOLGA'];}
       semanas[chaveKey][rg][di]=novoSt;
       DB.set('escalaSemanas',semanas);
+      _registrarIsencaoAdm(rg,chaveKey);
     } else {
       Escala.setStatus(rg,di,novoSt);
     }
@@ -5359,6 +5365,27 @@ ${extra||''}
     Render.admin();
     // Toast
     Toast.purple(`Escala desbloqueada: ${primeiroNome}. Semana ${getLabelSemana()}.`);
+  },
+
+  // Mecanismo explícito do ADM pra tirar a marcação de IRREGULAR de um membro —
+  // usa a mesma isenção por ADM já concedida automaticamente ao editar célula
+  // (_registrarIsencaoAdm), mas sem exigir tocar em nenhum dia específico:
+  // cobre o caso de o ADM já ter confirmado a programação por outro meio
+  // (verbal, WhatsApp etc.) e só precisar regularizar o status no app.
+  _regularizarAdm(rg,primeiroNome){
+    const ef=DB.get('efetivo')||[];
+    const m=ef.find(e=>e.rg===rg);
+    const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
+    const labelProxima=`${calcSemana(1)[0].dt} a ${calcSemana(1)[6].dt}/${calcSemana(1)[6].jsDate.getFullYear()}`;
+    if(!confirm(`Regularizar ${m?.posto||''} ${m?.nome||rg} pra semana ${labelProxima}?\n\nO alerta de irregularidade desaparece e a programação atual dele(a) nessa semana passa a valer como confirmada.`))return;
+    _registrarIsencaoAdm(rg,chaveProxima);
+    const logs=DB.get('logs')||[];
+    const u=Auth.user;
+    logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo:'REGULARIZACAO_ADM',desc:`${u.posto} ${u.nome} regularizou ${m?.posto||''} ${m?.nome||rg} — Semana ${labelProxima}`});
+    DB.set('logs',logs.slice(0,200));
+    Render.folgas();
+    Toast.success(`${primeiroNome} regularizado(a). Semana ${labelProxima}.`);
   },
 
   _resetarPin(rg,primeiroNome){
