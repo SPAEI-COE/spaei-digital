@@ -1104,7 +1104,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.34';
+const APP_VERSAO = '6.35';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -3631,7 +3631,7 @@ const Render={
             </div>
             <!-- Presentes -->
             ${presentes.length>0?`
-            <div style="font-size:10px;font-weight:700;color:#13703e;margin-bottom:6px;letter-spacing:.5px">✅ PRESENTES (${presentes.length})</div>
+            <div style="font-size:10px;font-weight:700;color:#1f9d55;margin-bottom:6px;letter-spacing:.5px">✅ PRESENTES (${presentes.length})</div>
             ${presentes.map(({m,st})=>`
             <div class="efetivo-row efetivo-row-presente" style="${m.chefe?'border-left:3px solid #7c5cbf;background:rgba(124,92,191,.04)':''}">
               <div>
@@ -3657,7 +3657,7 @@ const Render={
             </div>`).join('')}`:''}
             <!-- Ausentes -->
             ${ausentes.length>0?`
-            <div style="font-size:10px;font-weight:700;color:#c0392b;margin-bottom:6px;margin-top:8px;letter-spacing:.5px">⛔ AUSENTES (${ausentes.length})</div>
+            <div style="font-size:10px;font-weight:700;color:#df7c71;margin-bottom:6px;margin-top:8px;letter-spacing:.5px">⛔ AUSENTES (${ausentes.length})</div>
             ${ausentes.map(({m,st})=>{const c=ST_CFG[st]||{};return`
             <div class="efetivo-row efetivo-row-ausente">
               <div>
@@ -3701,7 +3701,7 @@ const Render={
               <div class="prog-bar">
                 <div class="prog-fill" style="width:${pctEnvio}%;background:${pctEnvio>=80?'#1f9d55':pctEnvio>=50?'#c77700':'#c0392b'}"></div>
               </div>
-              ${naoEnviadosList.length>0?`<div style="font-size:10px;color:#c77700;margin-top:4px">Aguardando: ${naoEnviadosList.map(m=>m.nome.split(' ')[0]).join(', ')}</div>`:'<div style="font-size:10px;color:#13703e;margin-top:4px">✅ Todos os membros já realizaram a marcação!</div>'}
+              ${naoEnviadosList.length>0?`<div style="font-size:10px;color:#c77700;margin-top:4px">Aguardando: ${naoEnviadosList.map(m=>m.nome.split(' ')[0]).join(', ')}</div>`:'<div style="font-size:10px;color:#1f9d55;margin-top:4px;font-weight:700">✅ Todos os membros já realizaram a marcação!</div>'}
             </div>
           </div>
 
@@ -3817,7 +3817,7 @@ const Render={
         <div class="folgas-panel-head">
           <h3 style="color:var(--az)">📅 Semana Atual em Execução</h3>
           <span class="semana-badge">${labelAtual}</span>
-          ${user.admin?'<span style="font-size:10px;color:#13703e;font-weight:700">● SOMENTE ADMIN PODE EDITAR</span>':'<span style="font-size:10px;color:var(--muted)">Somente visualização</span>'}
+          ${user.admin?'<span style="font-size:10px;color:#1f9d55;font-weight:700">● SOMENTE ADMIN PODE EDITAR</span>':'<span style="font-size:10px;color:var(--muted)">Somente visualização</span>'}
         </div>
         <div class="folgas-panel-body" style="padding-top:0">
           ${this._renderPainelSemana(ef,allStAtual,diasAtual,user,false,chaveAtual)}
@@ -3987,8 +3987,8 @@ const Render={
                   ${isChefe
                     ?'<span style="color:#7c5cbf;font-weight:700;font-size:9px">🎖️ A critério</span>'
                     :envSem
-                      ?`<span style="color:#13703e;font-weight:700">OK</span> <button style="margin-left:3px;font-size:9px;padding:2px 5px;border-radius:5px;
-                          background:rgba(124,92,191,.1);color:#7c5cbf;border:1px solid rgba(124,92,191,.3);cursor:pointer"
+                      ?`<span style="color:#1f9d55;font-weight:700">OK</span> <button style="margin-left:3px;font-size:9px;padding:2px 5px;border-radius:5px;
+                          background:rgba(124,92,191,.1);color:#a48dd2;border:1px solid rgba(124,92,191,.3);cursor:pointer"
                           onclick="Render._desbloquearEscala('${m.rg}','${m.nome.split(' ')[0]}')">desbloquear</button>`
                       :isIrr?`<span style="color:#c0392b;font-weight:700">IRREG</span> ${user.admin?`<button style="margin-left:3px;font-size:9px;padding:2px 5px;border-radius:5px;
                           background:rgba(31,157,85,.1);color:#1f9d55;border:1px solid rgba(31,157,85,.3);cursor:pointer"
@@ -4274,7 +4274,7 @@ const Render={
             ${p.observacoes?`<div style="margin-top:6px;font-size:.78rem;color:var(--muted);font-style:italic">${escHtml(p.observacoes)}</div>`:''}
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-ghost btn-sm" onclick="Render._movSei('${p.id}')">▶️ Movimentar</button>
-              ${p.status!=='CONCLUÍDO'?`<button class="btn btn-sm" style="background:rgba(19,112,62,.12);color:#13703e;border:1px solid rgba(19,112,62,.35)" onclick="Render._concluirSei('${p.id}')">✅ Concluir</button>`:''}
+              ${p.status!=='CONCLUÍDO'?`<button class="btn btn-sm" style="background:rgba(19,112,62,.12);color:#1f9d55;border:1px solid rgba(19,112,62,.35)" onclick="Render._concluirSei('${p.id}')">✅ Concluir</button>`:''}
             </div>
           </div>
         </div>`}).join('')}
