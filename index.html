@@ -1104,7 +1104,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.30';
+const APP_VERSAO = '6.31';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -2019,7 +2019,7 @@ const ST_CFG={
   'FÉRIAS':     {cls:'pill-fer', cor:'#5c4699',corDark:'#a48dd2',bg:'#efe9fa',borda:'#7c5cbf',abr:'FÉR'},
   'LICENÇA':    {cls:'pill-lic', cor:'#7f2e21',corDark:'#df7c71',bg:'#fbe7e4',borda:'#c0392b',abr:'LIC'},
   'SOBREAVISO': {cls:'pill-sob', cor:'#09008d',corDark:'#898be6',bg:'#e6e6f7',borda:'#1a1bb0',abr:'SOB',adminOnly:true},
-  'A_CRITERIO': {cls:'pill-chf', cor:'#7c5cbf',corDark:'#a48dd2',bg:'#efe9fa',borda:'#7c5cbf',abr:'🎖️',chefeOnly:true},
+  'A_CRITERIO': {cls:'pill-chf', cor:'#5c4699',corDark:'#a48dd2',bg:'#efe9fa',borda:'#7c5cbf',abr:'🎖️',chefeOnly:true},
   'LUTO':       {cls:'pill-lic', cor:'#212734',corDark:'#cfd4dc',bg:'#f2f4f8',borda:'#4a5262',abr:'LUT'},
   'OUTRO':      {cls:'pill-sob', cor:'#09008d',corDark:'#898be6',bg:'#e6e6f7',borda:'#1a1bb0',abr:'AFT'},
 };
@@ -3913,7 +3913,7 @@ const Render={
               </div>
               <div style="padding:12px 4px 9px;text-align:center">
                 <div style="font-size:10px;font-weight:800;color:${c.cor||'var(--muted)'};letter-spacing:.5px">${c.abr||'--'}</div>
-                ${podEditar?`<div style="font-size:8px;color:${c.cor||'var(--muted)'}88;margin-top:4px">editar</div>`:''}
+                ${podEditar?`<div style="font-size:8px;color:${c.cor||'var(--muted)'};margin-top:4px;font-weight:600">editar</div>`:''}
               </div>
             </div>`;
           }).join('')}
@@ -4020,11 +4020,11 @@ const Render={
                   ${user.admin?`onclick="Render._editCell('${m.rg}',${i},'${s}','${chaveKey}')"`:''}
                   title="${d.lbl} ${d.dt}: ${s==='A_CRITERIO'?'A critério do Chefe':s==='SOBREAVISO'?'📡 Sobreaviso (on-call)':s}">
                   <div style="font-size:8px;font-weight:700;color:${cc.cor||'var(--muted)'}">${d.lbl}</div>
-                  <div style="font-size:7px;color:${cc.cor||'var(--muted)'}88;margin-top:1px">${s==='A_CRITERIO'?'🎖️':s==='SOBREAVISO'?'📡':cc.abr||'--'}</div>
+                  <div style="font-size:8px;color:${cc.cor||'var(--muted)'};margin-top:1px;font-weight:700">${s==='A_CRITERIO'?'🎖️':s==='SOBREAVISO'?'📡':cc.abr||'--'}</div>
                 </div>`;
               }).join('')}
             </div>
-            ${isChefe?`<div style="font-size:9px;color:#7c5cbf88;font-style:italic;margin-top:8px;text-align:center">
+            ${isChefe?`<div style="font-size:9px;color:#a48dd2;font-style:italic;margin-top:8px;text-align:center">
               Somente o Administrador pode registrar ausências
             </div>`:''}
           </div>`;
@@ -4896,7 +4896,7 @@ ${extra||''}
           background:${isChefeSec?'rgba(124,92,191,.08)':'var(--thead)'};
           border-bottom:1px solid var(--border)">
           ${titulo} (${lista.length})
-          ${isChefeSec?`<span style="font-size:9px;font-weight:600;color:#a48dd288;margin-left:8px">● sempre no topo · a seu critério · ADM pode alterar</span>`:''}
+          ${isChefeSec?`<span style="font-size:9px;font-weight:600;color:#a48dd2;margin-left:8px">● sempre no topo · a seu critério · ADM pode alterar</span>`:''}
         </div>
         ${lista.map(m=>`
         <tr style="border-bottom:1px solid var(--border);${m.chefe?'background:rgba(124,92,191,.05)':''}">
