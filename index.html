@@ -1104,7 +1104,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.28';
+const APP_VERSAO = '6.29';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1906,8 +1906,14 @@ function prazoSemanaVencido(){
 // a programação da semana exibida (semana seguinte, por padrão)
 function membroIrregular(rg){
   if(!prazoSemanaVencido()) return false;
-  if(Afast.isIsento(rg)||isentoPorAdm(rg,Escala.chaveAtual())) return false;
-  return !Escala.isEnviado(rg);
+  // IMPORTANTE: a irregularidade é sempre sobre a PRÓXIMA semana (prazo de
+  // quinta-feira), calculada de forma EXPLÍCITA e independente de Nav.escOffset
+  // — nunca via Escala.chaveAtual()/getDias(), que reflete a semana sendo
+  // NAVEGADA na tela de Folgas (pode estar em 0=semana atual se o admin tiver
+  // trocado de aba antes de vir pro Dashboard), não a semana do prazo real.
+  const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
+  if(Afast.isIsento(rg)||isentoPorAdm(rg,chaveProxima)) return false;
+  return !Escala.isEnviado(rg,chaveProxima);
 }
 // Texto de contagem regressiva até Quinta-feira 23h59
 function labelPrazoCountdown(){
@@ -1935,11 +1941,12 @@ function labelPrazoCountdown(){
 function _precisaEnviar(){
   const u=Auth&&Auth.user;
   if(!u||u.chefe) return false;           // apenas Chefe é isento (A_CRITERIO)
-  if(Afast.isIsento(u.rg)||isentoPorAdm(u.rg,Escala.chaveAtual())) return false; // afastado/isento pelo ADM
+  const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
+  if(Afast.isIsento(u.rg)||isentoPorAdm(u.rg,chaveProxima)) return false; // afastado/isento pelo ADM
   // ADM também integra a seção: recebe lembrete da própria folga.
   // ADM não é bloqueado pelo prazo (pode marcar a qualquer momento).
   if(!u.admin&&prazoSemanaVencido()) return false;
-  return !Escala.isEnviado(u.rg);         // true se ainda não enviou
+  return !Escala.isEnviado(u.rg,chaveProxima);         // true se ainda não enviou
 }
 
 // ── LEMBRETE SEMANAL DO ADM (1º acesso após renovação de segunda) ──
@@ -1948,7 +1955,7 @@ function _precisaEnviar(){
 function _checkLembreteAdmSemanal(){
   const u=Auth&&Auth.user;
   if(!u||!u.admin) return;
-  if(Escala.isEnviado(u.rg)) return;
+  if(Escala.isEnviado(u.rg,chaveDeData(calcSemana(1)[0].jsDate))) return;
   const key='lembreteAdm_'+getSemanaKey();          // chave por semana ISO
   try{ if(localStorage.getItem(LS_PFX+key)) return; }catch(e){}
   try{ localStorage.setItem(LS_PFX+key,'1'); }catch(e){}
@@ -2579,9 +2586,9 @@ const Escala={
   },
 
   // Verifica se membro já enviou a escala desta semana
-  isEnviado(rg){
+  isEnviado(rg,weekKeyOpt){
     const envios=DB.get('envios')||{};
-    const key=this.chaveAtual();
+    const key=weekKeyOpt||this.chaveAtual();
     const chaveReal=this._achaRG(envios,rg);
     return !!(chaveReal!==undefined&&envios[chaveReal][key]&&!envios[chaveReal][key].desbloqueado);
   },
@@ -3377,7 +3384,7 @@ const Render={
     const u=Auth.user;
     const av=(DB.get('avisos')||[]).filter(a=>!a.lido).length;
     const proc=[...(DB.get('processos')||[]), ...getSeiProcs()].filter(p=>p.status!=='CONCLUÍDO').length;
-    const enviou=Escala.isEnviado(u.rg);
+    const enviou=Escala.isEnviado(u.rg,chaveDeData(calcSemana(1)[0].jsDate));
     const irr=membroIrregular(u.rg);
     const dark=!document.body.classList.contains('light');
     document.getElementById('s-perfil').innerHTML=`
@@ -3447,8 +3454,8 @@ const Render={
     const diasProx=calcSemana(1);
     const chaveProx=chaveDeData(diasProx[0].jsDate);
     const envios=DB.get('envios')||{};
-    const enviadosList=ef.filter(m=>!m.chefe&&Escala.isEnviado(m.rg));
-    const naoEnviadosList=ef.filter(m=>!m.chefe&&!Escala.isEnviado(m.rg));
+    const enviadosList=ef.filter(m=>!m.chefe&&Escala.isEnviado(m.rg,chaveProx));
+    const naoEnviadosList=ef.filter(m=>!m.chefe&&!Escala.isEnviado(m.rg,chaveProx));
     const pctEnvio=ef.filter(m=>!m.admin&&!m.chefe).length>0
       ?Math.round(enviadosList.length/ef.filter(m=>!m.admin&&!m.chefe).length*100):0;
 
@@ -3741,7 +3748,7 @@ const Render={
     // Para a aba de escala, exibimos AMBOS os painéis simultaneamente
     Nav.escOffset=1; // garantir que clicks de célula vão para próxima semana por padrão
 
-    const memEnviou=!user.chefe&&Escala.isEnviado(user.rg);
+    const memEnviou=!user.chefe&&Escala.isEnviado(user.rg,chaveProx);
     const memIrr=!user.admin&&membroIrregular(user.rg);
 
     // Distribuição semana próxima para mini-cal
@@ -3942,7 +3949,7 @@ const Render={
             ${sortEf(ef).map(m=>{
               const dias=allSt[m.rg]||Array(7).fill(m.chefe?'A_CRITERIO':'FOLGA');
               const isIrr=eProxSemana&&membroIrregular(m.rg)&&!m.admin&&!m.chefe;
-              const envSem=eProxSemana&&Escala.isEnviado(m.rg);
+              const envSem=eProxSemana&&Escala.isEnviado(m.rg,chaveKey);
               const isChefe=m.chefe;
               return`<tr class="${isChefe?'chefe-topo-row':''}" style="${isIrr?'background:rgba(192,57,43,.04)':''};border-bottom:1px solid var(--border)">
                 <td style="font-size:10px;font-weight:700;color:${isChefe?'#7c5cbf':'var(--muted)'};white-space:nowrap">
@@ -3982,7 +3989,7 @@ const Render={
           const isChefe=m.chefe;
           const dias=allSt[m.rg]||Array(7).fill(isChefe?'A_CRITERIO':'FOLGA');
           const isIrr=eProxSemana&&membroIrregular(m.rg)&&!m.admin&&!isChefe;
-          const envSem=eProxSemana&&Escala.isEnviado(m.rg);
+          const envSem=eProxSemana&&Escala.isEnviado(m.rg,chaveKey);
           const idxH=DIAS.findIndex(d=>d.hoje);
           const stHoje=dias[idxH>=0?idxH:0]||(isChefe?'A_CRITERIO':'FOLGA');
           const c=ST_CFG[stHoje]||{};
@@ -4068,7 +4075,7 @@ const Render={
     // Membro só edita próxima semana e própria linha
     if(!user.admin){
       if(rg!==user.rg){alert('Acesso negado: você só pode editar sua própria escala.');return;}
-      if(Escala.isEnviado(user.rg)){alert('Programação já enviada. Contate o Administrador.');return;}
+      if(Escala.isEnviado(user.rg,chaveDeData(calcSemana(1)[0].jsDate))){alert('Programação já enviada. Contate o Administrador.');return;}
       if(membroIrregular(user.rg)){alert('Prazo encerrado (Qui 23h59). Contate o Administrador.');return;}
     }
     const DIAS=chaveKey?calcSemana(chaveKey===chaveDeData(calcSemana(0)[0].jsDate)?0:1):getDias();
@@ -4101,7 +4108,7 @@ const Render={
     const user=Auth.user;
     if(!user.admin){
       if(rg!==user.rg){Modal.close();return;}
-      if(Escala.isEnviado(user.rg)){Modal.close();return;}
+      if(Escala.isEnviado(user.rg,chaveDeData(calcSemana(1)[0].jsDate))){Modal.close();return;}
     }
     // Salvar com chaveKey específica ou usar padrão
     if(chaveKey){
@@ -4132,7 +4139,7 @@ const Render={
   // ── ENVIAR PROGRAMAÇÃO ────────────────────────────────────────────────────
   _enviarProgramacao(){
     const user=Auth.user;
-    if(Escala.isEnviado(user.rg)){alert('Sua programação já foi enviada.');return;}
+    if(Escala.isEnviado(user.rg,chaveDeData(calcSemana(1)[0].jsDate))){alert('Sua programação já foi enviada.');return;}
     const chaveProx=chaveDeData(calcSemana(1)[0].jsDate);
     const allSt=Escala.getAllStatusSemanaAtual(DB.get('efetivo')||[]);
     const proxSt=Escala.getStatusByKey(user.rg,chaveProx);
@@ -4911,7 +4918,7 @@ ${extra||''}
                 :(DB.get('pins')||{})[m.rg]
                   ?`<button class="btn btn-ghost btn-sm" title="Resetar senha do membro" onclick="Render._resetarPin('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#1f9d55">🔐</button>`
                   :`<button class="btn btn-ghost btn-sm" title="Aguardando 1º acesso" style="color:#cfd4dc;cursor:default">🔓</button>`}
-              ${(!m.admin&&!m.chefe&&Escala.isEnviado(m.rg))
+              ${(!m.admin&&!m.chefe&&Escala.isEnviado(m.rg,chaveDeData(calcSemana(1)[0].jsDate)))
                 ?`<button class="btn btn-ghost btn-sm" title="Desbloquear escala enviada" onclick="Render._desbloquearEscala('${m.rg}','${m.nome.split(' ')[0]}')" style="color:#7c5cbf">🔓⚡</button>`
                 :''}
               <button class="btn btn-danger btn-sm" title="Remover" onclick="Render._delMembro(${m.id})">🗑️</button>
