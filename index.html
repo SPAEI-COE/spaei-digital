@@ -1104,7 +1104,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.32';
+const APP_VERSAO = '6.33';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1912,7 +1912,7 @@ function membroIrregular(rg){
   // NAVEGADA na tela de Folgas (pode estar em 0=semana atual se o admin tiver
   // trocado de aba antes de vir pro Dashboard), não a semana do prazo real.
   const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
-  if(Afast.isIsento(rg)||isentoPorAdm(rg,chaveProxima)) return false;
+  if(Afast.isIsento(rg,chaveProxima)||isentoPorAdm(rg,chaveProxima)) return false;
   return !Escala.isEnviado(rg,chaveProxima);
 }
 // Texto de contagem regressiva até Quinta-feira 23h59
@@ -1942,7 +1942,7 @@ function _precisaEnviar(){
   const u=Auth&&Auth.user;
   if(!u||u.chefe) return false;           // apenas Chefe é isento (A_CRITERIO)
   const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
-  if(Afast.isIsento(u.rg)||isentoPorAdm(u.rg,chaveProxima)) return false; // afastado/isento pelo ADM
+  if(Afast.isIsento(u.rg,chaveProxima)||isentoPorAdm(u.rg,chaveProxima)) return false; // afastado/isento pelo ADM
   // ADM também integra a seção: recebe lembrete da própria folga.
   // ADM não é bloqueado pelo prazo (pode marcar a qualquer momento).
   if(!u.admin&&prazoSemanaVencido()) return false;
@@ -2018,6 +2018,7 @@ const ST_CFG={
   'DISPENSA':   {cls:'pill-disp',cor:'#8a5300',corDark:'#c77700',bg:'#fdf1e0',borda:'#c77700',abr:'DSP'},
   'FÉRIAS':     {cls:'pill-fer', cor:'#5c4699',corDark:'#a48dd2',bg:'#efe9fa',borda:'#7c5cbf',abr:'FÉR'},
   'LICENÇA':    {cls:'pill-lic', cor:'#7f2e21',corDark:'#df7c71',bg:'#fbe7e4',borda:'#c0392b',abr:'LIC'},
+  'LTS':        {cls:'pill-lts', cor:'#7f2e21',corDark:'#df7c71',bg:'#fbe7e4',borda:'#c0392b',abr:'LTS'},
   'SOBREAVISO': {cls:'pill-sob', cor:'#09008d',corDark:'#898be6',bg:'#e6e6f7',borda:'#1a1bb0',abr:'SOB',adminOnly:true},
   'A_CRITERIO': {cls:'pill-chf', cor:'#5c4699',corDark:'#a48dd2',bg:'#efe9fa',borda:'#7c5cbf',abr:'🎖️',chefeOnly:true},
   'LUTO':       {cls:'pill-lic', cor:'#212734',corDark:'#cfd4dc',bg:'#f2f4f8',borda:'#4a5262',abr:'LUT'},
@@ -2668,6 +2669,7 @@ Escala.getAllStatusSemanaAtual=function(ef){
 const AFAST_TIPOS={
   FERIAS:  {lbl:'Férias',              icone:'🌴', st:'FÉRIAS'},
   LICENCA: {lbl:'Licença',             icone:'📋', st:'LICENÇA'},
+  LTS:     {lbl:'LTS (Licença p/ Tratamento de Saúde)', icone:'🏥', st:'LTS'},
   LUTO:    {lbl:'Luto',                icone:'🕊️', st:'LUTO'},
   DISPENSA:{lbl:'Dispensa Prolongada', icone:'🗓️', st:'DISPENSA'},
   OUTRO:   {lbl:'Outro',               icone:'🛡️', st:'OUTRO'},
@@ -2697,7 +2699,7 @@ const Afast={
     if(!dias) return this.ativoHoje(rg);
     return dias.some(d=>this._dentroPeriodo(a,d.jsDate));
   },
-  isIsento(rg){ return this.ativoHoje(rg) || this.isentoNaSemana(rg,Escala.chaveAtual()); },
+  isIsento(rg,weekKeyOpt){ return this.ativoHoje(rg) || this.isentoNaSemana(rg,weekKeyOpt||Escala.chaveAtual()); },
 
   _dentroPeriodo(a,jsDate){
     const ini=_parseDataBR(a.dataIni); if(!ini)return false;
