@@ -489,6 +489,9 @@ tr:hover td{background:var(--hover)}
 .plan-day-sub{font-size:8px;font-weight:700;margin-top:1px}
 .plan-day.alerta{border-color:#c0392b;background:linear-gradient(158deg,#fdf3f2,#fbe7e4 60%,#f7d9d5)}
 .plan-day.ok{border-color:#1f9d55;background:linear-gradient(158deg,#f2faf5,#e3f5ea 60%,#d3edde)}
+.plan-day-eu{position:relative;border-color:#1f9d55!important;border-width:2px!important;animation:pulseOnlineGreen 2s infinite}
+.plan-day-eu-tag{position:absolute;top:-7px;right:-6px;background:#1f9d55;color:#fff;font-size:7px;font-weight:800;
+  letter-spacing:.4px;padding:1px 5px;border-radius:8px;box-shadow:0 1px 4px rgba(4,0,63,.35)}
 .plan-day:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(4,0,63,.18);border-color:var(--az)}
 .plan-day:focus-visible{outline:2px solid var(--az-fg);outline-offset:2px}
 
@@ -561,6 +564,7 @@ tr:hover td{background:var(--hover)}
 
 /* ── BANNER DE LEMBRETE DE FOLGA ──────────────────────────────── */
 @keyframes pulseWarning{0%,100%{box-shadow:0 0 0 0 rgba(199,119,0,.4)}70%{box-shadow:0 0 0 8px rgba(199,119,0,0)}}
+@keyframes pulseOnlineGreen{0%,100%{box-shadow:0 0 0 0 rgba(31,157,85,.5)}70%{box-shadow:0 0 0 7px rgba(31,157,85,0)}}
 @keyframes shakeX{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
 #banner-lembrete{
   display:flex;align-items:center;gap:12px;
@@ -1100,7 +1104,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.26';
+const APP_VERSAO = '6.27';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -3639,13 +3643,16 @@ const Render={
             </div>
             <!-- Distribuição diária -->
             <div class="plan-week">
-              ${distDiaria.map(d=>`
-              <div class="plan-day${d.alerta?' alerta':d.c['SERVIÇO']>=Math.ceil(ef.length*0.6)?' ok':''}">
-                <div class="plan-day-lbl" style="color:${d.alerta?'#c0392b':'var(--muted)'}">${d.lbl}</div>
-                <div class="plan-day-dt" style="color:var(--muted)">${d.dt}</div>
+              ${distDiaria.map((d,i)=>{
+              const euTrabalho=(allStProx[user.rg]||[])[i]==='SERVIÇO';
+              return `
+              <div class="plan-day${d.alerta?' alerta':d.c['SERVIÇO']>=Math.ceil(ef.length*0.6)?' ok':''}${euTrabalho?' plan-day-eu':''}" ${euTrabalho?'title="Você trabalha neste dia"':''}>
+                <div class="plan-day-lbl" style="color:${d.alerta?'#c0392b':'#212734'}">${d.lbl}</div>
+                <div class="plan-day-dt" style="color:#4a5262">${d.dt}</div>
                 <div class="plan-day-num" style="color:${d.alerta?'#c0392b':'#13703e'}">${d.c['SERVIÇO']}</div>
                 <div class="plan-day-sub" style="color:${d.alerta?'#c0392b':'#13703e'}">SRV</div>
-              </div>`).join('')}
+                ${euTrabalho?'<div class="plan-day-eu-tag">VOCÊ</div>':''}
+              </div>`;}).join('')}
             </div>
             <!-- Progresso de envios -->
             <div style="margin-top:8px">
