@@ -1096,7 +1096,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.23';
+const APP_VERSAO = '6.24';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1483,6 +1483,7 @@ const DB={
 
       _fbOk=true;
       _fbSynced=true;
+      if(typeof Auth!=='undefined') Auth.revalidar();
       // Qualquer chave pendente (desta sessão ou de uma sessão anterior que
       // fechou antes de confirmar) entra na fila e é reenviada agora.
       Object.keys(_pendentes).forEach(k=>_fbQueue.add(k));
@@ -1660,7 +1661,7 @@ const DB={
               FB_KEYS.forEach(k=>{ if(d[k]!==undefined && !_fbQueue.has(k)){ _mem[k]=d[k];
                 try{localStorage.setItem(LS_PFX+k,JSON.stringify(d[k]));}catch(e){} }});
             }
-            _fbSynced=true; DB._flushQueue();
+            _fbSynced=true; if(typeof Auth!=='undefined') Auth.revalidar(); DB._flushQueue();
           }).catch(()=>{});
         } else { DB._flushQueue(); }
       } else {
@@ -3092,8 +3093,50 @@ const Auth={
 
   restore(){
     const raw=safeGet('local',this.SESSION_KEY) || safeGet('session',this.SESSION_KEY);
-    if(raw){this.user=JSON.parse(raw);return true;}
-    return false;
+    if(!raw) return false;
+    let sessUser;
+    try{ sessUser=JSON.parse(raw); }catch(e){ return false; }
+    if(!sessUser||!sessUser.rg) return false;
+    const efetivo=DB.get('efetivo');
+    if(Array.isArray(efetivo)&&efetivo.length>0){
+      // Cache já disponível neste boot: revalidar de verdade contra o cadastro
+      // atual — sessão salva NUNCA abre acesso só por existir no storage.
+      // Impede acesso de militar removido/transferido, e refresca admin/chefe/
+      // posto a partir do dado ATUAL, nunca do snapshot gravado no momento do login.
+      const militar=efetivo.find(e=>normRG(e.rg)===normRG(sessUser.rg));
+      if(!militar){
+        safeRemove('local',this.SESSION_KEY);
+        safeRemove('session',this.SESSION_KEY);
+        this.user=null;
+        return false;
+      }
+      this.user={...sessUser,...militar};
+    } else {
+      // Cache ainda não carregou neste aparelho (1º boot local) — aceitar
+      // provisoriamente; revalidar() confirma assim que o Firebase sincronizar.
+      this.user=sessUser;
+    }
+    return true;
+  },
+
+  // Revalida a sessão já restaurada assim que o cache do efetivo é atualizado
+  // pelo Firebase (chamado logo após _fbSynced=true). Cobre o caso em que a
+  // sessão foi aceita PROVISORIAMENTE no boot (cache local ainda vazio) e o
+  // militar de fato não existe mais, ou perdeu admin/chefe, no cadastro real.
+  revalidar(){
+    if(!this.user||!this.user.rg) return;
+    const efetivo=DB.get('efetivo');
+    if(!Array.isArray(efetivo)||!efetivo.length) return;
+    const militar=efetivo.find(e=>normRG(e.rg)===normRG(this.user.rg));
+    if(!militar){
+      safeRemove('local',this.SESSION_KEY);
+      safeRemove('session',this.SESSION_KEY);
+      this.user=null;
+      alert('Sua sessão não é mais válida (cadastro removido ou alterado). Faça login novamente.');
+      location.reload();
+      return;
+    }
+    this.user={...this.user,...militar};
   }
 };
 
