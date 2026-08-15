@@ -250,11 +250,11 @@ a{text-decoration:none;color:inherit}
 /* ── PILLS / BADGES ── */
 .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap}
 .pill-serv{background:rgba(31,157,85,0.13);color:#1f9d55;border:1px solid rgba(31,157,85,0.22)}
-.pill-folg{background:rgba(26,27,176,0.13);color:#3538d4;border:1px solid rgba(26,27,176,0.28)}
+.pill-folg{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
 .pill-disp{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
 .pill-fer{background:rgba(124,92,191,0.13);color:#9d84d1;border:1px solid rgba(124,92,191,0.22)}
 .pill-lic{background:rgba(192,57,43,0.13);color:#c0392b;border:1px solid rgba(192,57,43,0.22)}
-.pill-and{background:rgba(26,27,176,0.13);color:#3538d4;border:1px solid rgba(26,27,176,0.28)}
+.pill-and{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
 .pill-fase{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
 .pill-conc{background:rgba(31,157,85,0.13);color:#1f9d55;border:1px solid rgba(31,157,85,0.22)}
 .pill-ag{background:rgba(124,92,191,0.13);color:#9d84d1;border:1px solid rgba(124,92,191,0.22)}
@@ -262,7 +262,7 @@ a{text-decoration:none;color:inherit}
 .pill-media{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
 .pill-baixa{background:rgba(31,157,85,0.13);color:#1f9d55;border:1px solid rgba(31,157,85,0.22)}
 .pill-urg{background:rgba(192,57,43,0.85);color:#fff;border:1px solid rgba(192,57,43,0.5)}
-.pill-norm{background:rgba(26,27,176,0.13);color:#3538d4;border:1px solid rgba(26,27,176,0.28)}
+.pill-norm{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
 .pill-chf{background:rgba(200,170,0,0.15);color:#c8aa00;border:1px solid rgba(200,170,0,0.35)}
 /* ── CHEFE ── */
 .chefe-topo-row{background:rgba(124,92,191,.05)!important}
@@ -480,13 +480,13 @@ tr:hover td{background:var(--hover)}
 
 /* ── PLANNING GRID ── */
 .plan-week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:12px}
-.plan-day{border-radius:10px;border:1px solid var(--border);padding:8px 4px;text-align:center;background:var(--card);transition:all .2s}
-.plan-day-lbl{font-size:9px;font-weight:800;margin-bottom:2px;color:var(--muted)}
-.plan-day-dt{font-size:8px;color:var(--muted);margin-bottom:5px}
+.plan-day{border-radius:10px;border:1px solid #e4e8ef;padding:8px 4px;text-align:center;background:linear-gradient(158deg,#fbfcfe,#eef1f7 45%,#e1e6ef);transition:all .2s}
+.plan-day-lbl{font-size:9px;font-weight:800;margin-bottom:2px;color:#212734}
+.plan-day-dt{font-size:8px;color:#4a5262;margin-bottom:5px}
 .plan-day-num{font-size:16px;font-weight:800;line-height:1}
 .plan-day-sub{font-size:8px;font-weight:700;margin-top:1px}
-.plan-day.alerta{border-color:#c0392b;background:rgba(192,57,43,.07)}
-.plan-day.ok{border-color:#1f9d55;background:rgba(31,157,85,.05)}
+.plan-day.alerta{border-color:#c0392b;background:linear-gradient(158deg,#fdf3f2,#fbe7e4 60%,#f7d9d5)}
+.plan-day.ok{border-color:#1f9d55;background:linear-gradient(158deg,#f2faf5,#e3f5ea 60%,#d3edde)}
 .plan-day:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(4,0,63,.18);border-color:var(--az)}
 .plan-day:focus-visible{outline:2px solid var(--az-fg);outline-offset:2px}
 
@@ -550,8 +550,8 @@ tr:hover td{background:var(--hover)}
 /* ── STATUS PILLS EXTRAS ── */
 .pill-lts{background:rgba(192,57,43,0.13);color:#c0392b;border:1px solid rgba(192,57,43,0.22)}
 .pill-ltspf{background:rgba(199,119,0,0.13);color:#c77700;border:1px solid rgba(199,119,0,0.22)}
-.pill-disp2{background:rgba(26,27,176,0.13);color:#3538d4;border:1px solid rgba(26,27,176,0.28)}
-.pill-sob{background:rgba(26,27,176,0.15);color:#1a1bb0;border:1px solid rgba(26,27,176,0.35)}
+.pill-disp2{background:rgba(26,27,176,0.13);color:#898be6;border:1px solid rgba(26,27,176,0.28)}
+.pill-sob{background:rgba(26,27,176,0.15);color:#898be6;border:1px solid rgba(26,27,176,0.35)}
 
 /* ── ANIMAÇÕES ── */
 @keyframes pulseGreen{0%,100%{opacity:1}50%{opacity:.5}}
@@ -3452,7 +3452,7 @@ const Render={
         <div class="plan-week">
           ${distSemanaAtual.map((d,i)=>`
           <div class="plan-day${d.alerta?' alerta':d.servTotal>=Math.ceil(ef.length*0.6)?' ok':''}" style="cursor:pointer" onclick="Drawer.open('escdia',${i})" onkeydown="if(event.key==='Enter')Drawer.open('escdia',${i})" role="button" tabindex="0" title="Ver efetivo de ${d.lbl} ${d.dt}">
-            <div class="plan-day-lbl" style="${d.hoje?'color:var(--cyan);font-weight:800':''}">${d.lbl}${d.hoje?' •':''}</div>
+            <div class="plan-day-lbl" style="${d.hoje?'color:#8a5300;font-weight:800':''}">${d.lbl}${d.hoje?' •':''}</div>
             <div class="plan-day-dt">${d.dt}</div>
             <div class="plan-day-num" style="color:${d.alerta?'#c0392b':'#13703e'}">${d.servTotal}</div>
             <div class="plan-day-sub" style="color:${d.alerta?'#c0392b':'#13703e'}">de ${ef.length}</div>
