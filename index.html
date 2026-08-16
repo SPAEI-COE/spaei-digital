@@ -1113,7 +1113,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.38';
+const APP_VERSAO = '6.39';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1690,6 +1690,91 @@ const DB={
         DB._reconexaoWatchdog = setTimeout(()=>{ if(!_fbOk){ DB._retryN=0; DB.init(); } }, 15000);
       }
     });
+  },
+};
+
+// ════════════════════════════════════════════
+// BACKUP — export manual (download local) + snapshot automático arquivado
+// no próprio Firebase (nó 'backups', FORA do sistema de sync ao vivo de
+// FB_KEYS — são registros datados de arquivamento, não estado atual editável,
+// por isso usam _fbDB diretamente em vez de DB.set/FB_KEYS) + restauração.
+// ════════════════════════════════════════════
+const BACKUP_RETENCAO = 10;                    // mantém os 10 snapshots automáticos mais recentes
+const BACKUP_INTERVALO_MS = 20*60*60*1000;     // não repete o automático em menos de ~20h
+
+const Backup = {
+  _gerarSnapshot(){
+    const dados={};
+    FB_KEYS.forEach(k=>{ const v=DB.get(k); if(v!==undefined&&v!==null) dados[k]=v; });
+    return { ts:new Date().toISOString(), versao:APP_VERSAO, dados };
+  },
+
+  // Download local — funciona mesmo sem Firebase (só depende do DB.get local/cache)
+  baixar(){
+    const snap=this._gerarSnapshot();
+    const blob=new Blob([JSON.stringify(snap,null,2)],{type:'application/json'});
+    const dt=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=`SPAEI_Backup_${dt}.json`; a.click();
+    URL.revokeObjectURL(a.href);
+    if(typeof Toast!=='undefined') Toast.success('💾 Backup baixado — guarde este arquivo em local seguro');
+  },
+
+  // Snapshot automático dentro do próprio Firebase — throttle de ~20h, retenção limitada.
+  // Não bloqueia nem avisa em caso de falha (é uma rede de segurança silenciosa, não uma
+  // ação que o usuário pediu agora); loga só no console para eventual diagnóstico.
+  async automaticoSeNecessario(){
+    if(!_fbOk||!_fbDB) return;
+    try{
+      const ultimoSnap=await _fbDB.ref('backups').orderByKey().limitToLast(1).get();
+      if(ultimoSnap.exists()){
+        const val=Object.values(ultimoSnap.val())[0];
+        if(val?.ts && (Date.now()-new Date(val.ts).getTime())<BACKUP_INTERVALO_MS) return;
+      }
+      const novo=this._gerarSnapshot();
+      const chave=novo.ts.replace(/[.:]/g,'-');
+      await _fbDB.ref('backups/'+chave).set(novo);
+      await this._podar();
+    }catch(e){ console.warn('Backup automático não realizado (não crítico):', e.message); }
+  },
+
+  async _podar(){
+    const snap=await _fbDB.ref('backups').orderByKey().get();
+    if(!snap.exists()) return;
+    const chaves=Object.keys(snap.val()).sort();
+    const excesso=chaves.length-BACKUP_RETENCAO;
+    if(excesso<=0) return;
+    const updates={};
+    chaves.slice(0,excesso).forEach(k=>{ updates['backups/'+k]=null; });
+    await _fbDB.ref().update(updates);
+  },
+
+  async listar(){
+    if(!_fbOk||!_fbDB) return [];
+    const snap=await _fbDB.ref('backups').orderByKey().get();
+    if(!snap.exists()) return [];
+    const val=snap.val();
+    return Object.keys(val).sort().reverse().map(k=>({chave:k,...val[k]}));
+  },
+
+  // Restaura um snapshot {ts,versao,dados:{chave:valor}}. Sempre tira um backup
+  // de segurança do estado ATUAL antes de sobrescrever (arrependimento sempre possível).
+  // Grava pelo caminho normal (DB.set/FB_KEYS) — mesma fila de pendência/confirmação
+  // de qualquer edição normal do app, nunca um caminho de gravação separado.
+  async restaurar(snapshotObj){
+    if(!snapshotObj||typeof snapshotObj.dados!=='object') throw new Error('Arquivo de backup inválido ou corrompido.');
+    if(_fbOk&&_fbDB){
+      try{
+        const atual=this._gerarSnapshot();
+        const chave='pre-restauracao-'+atual.ts.replace(/[.:]/g,'-');
+        await _fbDB.ref('backups/'+chave).set(atual);
+      }catch(e){ console.warn('Backup de segurança pré-restauração falhou (restauração prossegue mesmo assim):', e.message); }
+    }
+    let restaurados=0;
+    Object.entries(snapshotObj.dados).forEach(([k,v])=>{
+      if(FB_KEYS.includes(k)){ DB.set(k, v, 'Restauração de backup de '+(snapshotObj.ts||'data desconhecida')); restaurados++; }
+    });
+    return restaurados;
   },
 };
 
@@ -4960,7 +5045,7 @@ ${extra||''}
         </div>
       </div>
       <div class="tabs">
-        ${[['efetivo','👥 Efetivo'],['tokens','🔑 Tokens'],['logs','📋 Logs'],['config','⚙️ Config']].map(([id,lbl])=>
+        ${[['efetivo','👥 Efetivo'],['tokens','🔑 Tokens'],['logs','📋 Logs'],['backup','💾 Backup'],['config','⚙️ Config']].map(([id,lbl])=>
           `<button class="tab-btn${tab===id?' on':''}" onclick="DB.set('adm_tab','${id}');Render.admin()">${lbl}</button>`).join('')}
       </div>
       <div id="adm-content"></div>`;
@@ -5119,6 +5204,29 @@ ${extra||''}
           <span class="log-desc">${escHtml(l.desc)}</span>
         </div>`;}).join('')}
       </div>`;
+    } else if(tab==='backup'){
+      box.innerHTML=`<div class="card">
+        <div style="font-weight:700;font-size:14px;margin-bottom:6px;color:var(--text)">💾 Backup e Restauração</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:14px">
+          Backup automático a cada login de ADM (no máx. 1 a cada ~20h, guarda os ${BACKUP_RETENCAO} mais recentes dentro do próprio Firebase).
+          Baixe também uma cópia local de vez em quando — é a única proteção contra perda total do banco.
+        </div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="Backup.baixar()">
+          ⬇️ Baixar Backup Agora (.json)
+        </button>
+        <div style="margin-top:16px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px">BACKUPS AUTOMÁTICOS (NO FIREBASE)</div>
+        <div id="adm-backup-lista" style="margin-top:8px">
+          <div class="empty" style="padding:16px">Carregando…</div>
+        </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:8px">RESTAURAR DE UM ARQUIVO BAIXADO</div>
+          <label class="btn btn-ghost" style="width:100%;justify-content:center;cursor:pointer">
+            📂 Selecionar arquivo de backup (.json)
+            <input type="file" accept="application/json" style="display:none" onchange="Render._restaurarDeArquivo(this)">
+          </label>
+        </div>
+      </div>`;
+      Render._carregarBackupsList();
     } else if(tab==='config'){
       box.innerHTML=`<div class="card">
         <div style="font-weight:700;font-size:14px;margin-bottom:14px;color:var(--text)">Configurações do Sistema</div>
@@ -5578,6 +5686,67 @@ ${extra||''}
     DB.init();
     alert('Sistema resetado para os dados iniciais.');
     Render.admin();
+  },
+
+  async _carregarBackupsList(){
+    const box=document.getElementById('adm-backup-lista');
+    if(!box) return; // usuário já saiu da aba antes da resposta chegar
+    if(!_fbOk||!_fbDB){
+      box.innerHTML=`<div class="empty" style="padding:16px">Sem conexão com o Firebase agora — a lista de backups automáticos não pode ser carregada. O download manual acima funciona normalmente (usa os dados já carregados).</div>`;
+      return;
+    }
+    let lista=[];
+    try{ lista=await Backup.listar(); }
+    catch(e){ box.innerHTML=`<div class="empty" style="padding:16px">⚠️ Falha ao carregar: ${escHtml(e.message)}</div>`; return; }
+    if(document.getElementById('adm-backup-lista')!==box) return; // tab trocada nesse meio-tempo
+    if(!lista.length){ box.innerHTML=`<div class="empty" style="padding:16px">Nenhum backup automático ainda — o primeiro será criado no próximo login de ADM.</div>`; return; }
+    box.innerHTML=lista.map((b,i)=>{
+      const dt=new Date(b.ts);
+      const dtTxt=isNaN(dt)?b.ts:dt.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      const ehPreRestauracao=b.chave.startsWith('pre-restauracao-');
+      const tamKB=Math.round(JSON.stringify(b.dados||{}).length/1024);
+      window['_backupCache_'+i]=b;
+      return `<div class="efetivo-row">
+        <div style="min-width:0">
+          <div class="efetivo-posto">${ehPreRestauracao?'🛟 Antes de uma restauração':'🕐 Automático'} — ${dtTxt}</div>
+          <div class="efetivo-nome" style="font-size:10px;color:var(--muted)">v${escHtml(b.versao||'?')} · ~${tamKB} KB · ${Object.keys(b.dados||{}).length} chaves</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="Render._confirmarRestauracao(window['_backupCache_${i}'])">♻️ Restaurar</button>
+      </div>`;
+    }).join('');
+  },
+
+  _restaurarDeArquivo(inputEl){
+    const file=inputEl.files&&inputEl.files[0];
+    inputEl.value='';
+    if(!file) return;
+    const rd=new FileReader();
+    rd.onerror=()=>Toast.error('Não foi possível ler o arquivo.');
+    rd.onload=()=>{
+      let obj;
+      try{ obj=JSON.parse(rd.result); }
+      catch(e){ Toast.error('Arquivo inválido — não é um backup JSON reconhecível.'); return; }
+      Render._confirmarRestauracao(obj);
+    };
+    rd.readAsText(file);
+  },
+
+  _confirmarRestauracao(snapshotObj){
+    if(!snapshotObj||typeof snapshotObj.dados!=='object'){ Toast.error('Backup inválido ou corrompido.'); return; }
+    const dt=new Date(snapshotObj.ts);
+    const dtTxt=isNaN(dt)?(snapshotObj.ts||'data desconhecida'):dt.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    if(!confirm(`⚠️ RESTAURAR BACKUP DE ${dtTxt}?\n\nIsso vai SOBRESCREVER os dados atuais (efetivo, escala, processos, avisos e demais) pelos dados desse backup.\n\nUm backup do estado ATUAL é feito automaticamente antes, então dá pra desfazer restaurando de novo — mas confirme que é isso mesmo que você quer.`)) return;
+    if(!confirm('Tem certeza absoluta? Esta ação substitui os dados ao vivo agora mesmo.')) return;
+    Backup.restaurar(snapshotObj).then(n=>{
+      const logs=DB.get('logs')||[];
+      logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+        tipo:'BACKUP',desc:`Restauração de backup de ${dtTxt} (${n} chave(s))`});
+      DB.set('logs',logs.slice(0,200));
+      Toast.success(`♻️ Backup restaurado (${n} chave(s))`);
+      Render.admin();
+    }).catch(e=>{
+      Toast.error('Falha ao restaurar: '+(e&&e.message||'erro desconhecido'));
+    });
   }
 };
 
@@ -5620,6 +5789,9 @@ const App={
     initClock();
     buildNav();
     Nav.go('dashboard');
+    // Backup automático (throttle ~20h) — só verificado/disparado em sessão de
+    // ADM, silencioso, não bloqueia a navegação
+    if(Auth.user?.admin) Backup.automaticoSeNecessario();
     // ── Lembrete de folga ao iniciar sessão ──────────────────────────────
     // Exibe toast de alerta se o membro ainda não enviou a programação
     // Pequeno delay para garantir que o layout já está renderizado
