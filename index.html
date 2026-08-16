@@ -1142,7 +1142,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.41';
+const APP_VERSAO = '6.42';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -5202,31 +5202,67 @@ const Render={
     const w=window.open('','_blank','width=980,height=720');
     if(!w){alert('Habilite pop-ups para gerar o PDF.');return;}
     const dt=new Date().toLocaleString('pt-BR');
+    const brasao=document.querySelector('.login-shield img')?.src||'';
+    // Legenda: só aparece se pelo menos uma célula da tabela bater com um status
+    // conhecido (ST_CFG) — não polui relatórios que não têm coluna de escala.
+    const statusUsados=[...new Set(rows.flat().filter(c=>ST_CFG[c]))];
+    const legendaHtml = statusUsados.length ? `
+      <div class="legenda">
+        ${statusUsados.map(s=>`<span><i class="dot" style="background:${ST_CFG[s].borda}"></i>${s} (${ST_CFG[s].abr})</span>`).join('')}
+      </div>` : '';
+    const tdHtml=(c)=>{
+      const cfg=ST_CFG[c];
+      if(cfg) return `<td><span class="st-pill" style="background:${cfg.bg};color:${cfg.cor};border:1px solid ${cfg.borda}">${cfg.abr}</span></td>`;
+      return `<td>${c??''}</td>`;
+    };
     w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
 <title>${titulo}</title><style>
-@page{size:A4 landscape;margin:12mm}
-body{font-family:'Segoe UI',Arial,sans-serif;color:#0b0d12;margin:0;padding:18px}
-.cab{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #c8aa00;padding-bottom:10px;margin-bottom:14px}
-.cab h1{font-size:16px;margin:0}.cab .sub{font-size:10px;color:#212734;margin-top:2px}
-.cab .org{font-size:10px;text-align:right;color:#212734;line-height:1.5}
+@page{size:A4 landscape;margin:0}
+*{box-sizing:border-box}
+body{font-family:'Segoe UI',Arial,sans-serif;color:#0b0d12;margin:0}
+.folha{padding:0 0 16mm}
+.cab{display:flex;align-items:center;gap:16px;background:linear-gradient(135deg,#060060,#09008d 55%,#1a1bb0);color:#fff;padding:14px 22px}
+.cab-brasao{width:50px;height:50px;border-radius:50%;background:rgba(200,170,0,.18);border:2px solid rgba(200,170,0,.55);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
+.cab-brasao img{width:100%;height:100%;object-fit:contain}
+.cab-mid{flex:1;min-width:0}
+.cab h1{font-size:17px;margin:0;letter-spacing:.3px}
+.cab .sub{font-size:9.5px;color:#e8c82a;font-weight:700;margin-top:3px;letter-spacing:.4px;text-transform:uppercase}
+.cab-org{font-size:9px;text-align:right;color:rgba(255,255,255,.8);line-height:1.6;flex-shrink:0}
+.cab-faixa{height:4px;background:linear-gradient(90deg,#c8aa00,#e8c82a)}
+.conteudo{padding:16px 22px 0}
 table{width:100%;border-collapse:collapse;font-size:9.5px}
-th{background:#060060;color:#fff;padding:6px 7px;text-align:left;font-size:9px;letter-spacing:.3px}
-td{padding:5px 7px;border-bottom:1px solid #e4e8ef}
-tr:nth-child(even) td{background:#f2f4f8}
-.rod{margin-top:14px;font-size:8.5px;color:#4a5262;display:flex;justify-content:space-between}
+th{background:#060060;color:#fff;padding:7px 8px;text-align:left;font-size:8.8px;letter-spacing:.3px}
+th:first-child{border-top-left-radius:5px}th:last-child{border-top-right-radius:5px}
+td{padding:6px 8px;border-bottom:1px solid #e4e8ef}
+tbody tr:nth-child(even) td{background:#f5f6fa}
+tbody tr:hover td{background:#eef1f7}
+.st-pill{display:inline-block;padding:2.5px 9px;border-radius:20px;font-weight:800;font-size:8.5px;letter-spacing:.3px;white-space:nowrap}
+.legenda{margin-top:16px;display:flex;gap:14px;flex-wrap:wrap;font-size:8.5px;color:#212734;padding:10px 12px;background:#f5f6fa;border-radius:8px;border:1px solid #e4e8ef}
+.legenda span{display:inline-flex;align-items:center;gap:5px;font-weight:600}
+.legenda .dot{width:9px;height:9px;border-radius:3px;display:inline-block;flex-shrink:0}
+.rod{margin-top:16px;font-size:8.5px;color:#4a5262;display:flex;justify-content:space-between;border-top:1px solid #e4e8ef;padding-top:9px}
 ${extra||''}
 @media print{.noprint{display:none}}
 </style></head><body>
+<div class="folha">
 <div class="cab">
-  <div><h1>${titulo}</h1><div class="sub">SPAEI DIGITAL — Seção de Projetos, Aquisições Especiais e Inovação</div></div>
-  <div class="org">COE — PMERJ<br>Gerado em ${dt}</div>
+  <div class="cab-brasao">${brasao?`<img src="${brasao}" alt="Brasão COE">`:'🛡️'}</div>
+  <div class="cab-mid">
+    <h1>${titulo}</h1>
+    <div class="sub">SPAEI DIGITAL · Seção de Projetos, Aquisições Especiais e Inovação</div>
+  </div>
+  <div class="cab-org">COE — PMERJ<br>Gerado em ${dt}</div>
 </div>
+<div class="cab-faixa"></div>
+<div class="conteudo">
 <table><thead><tr>${thead.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c??''}</td>`).join('')}</tr>`).join('')}</tbody></table>
+<tbody>${rows.map(r=>`<tr>${r.map(tdHtml).join('')}</tr>`).join('')}</tbody></table>
+${legendaHtml}
 <div class="rod"><span>Documento gerado automaticamente pelo SPAEI DIGITAL</span><span>Uso interno — COE/PMERJ</span></div>
-<div class="noprint" style="text-align:center;margin-top:16px">
+<div class="noprint" style="text-align:center;margin-top:18px">
   <button onclick="window.print()" style="padding:10px 26px;background:#c8aa00;color:#fff;border:0;border-radius:8px;font-weight:700;cursor:pointer">🖨️ Imprimir / Salvar como PDF</button>
 </div>
+</div></div>
 <script>setTimeout(()=>window.print(),400)<\/script></body></html>`);
     w.document.close();
   },
