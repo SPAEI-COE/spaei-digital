@@ -1142,7 +1142,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.40';
+const APP_VERSAO = '6.41';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -3661,6 +3661,7 @@ const Render={
         <div class="perfil-stat"><b>${av}</b><span>Avisos</span></div>
       </div>
       <button class="perfil-item" onclick="Nav.go('folgas')"><span class="pi-ico">📅</span><span style="flex:1">Minha Escala de Folgas</span><span>›</span></button>
+      <button class="perfil-item" onclick="Render._exportarICS()"><span class="pi-ico">📲</span><span style="flex:1">Exportar Escala pro Calendário (.ics)</span><span>›</span></button>
       <button class="perfil-item" onclick="Nav.go('relatorios')"><span class="pi-ico">📊</span><span style="flex:1">Relatórios</span><span>›</span></button>
       <button class="perfil-item" onclick="UI.toggleDark();Render.perfil()"><span class="pi-ico">${dark?'🌙':'☀️'}</span><span style="flex:1">Modo ${dark?'Escuro':'Claro'}</span></button>
       <button class="perfil-item danger" onclick="Auth.logout()"><span class="pi-ico">🚪</span><span style="flex:1">Sair do Sistema</span></button>
@@ -4690,6 +4691,8 @@ const Render={
       <button class="btn btn-primary" onclick="Render.${cb}">Salvar</button>
     </div>`;},
   _salvarProc(id){
+    const procAntes=DB.get('processos')||[];
+    const antigo = id ? procAntes.find(x=>x.id===id) : null;
     const novo={
       id:id||('P'+Date.now()),
       numero:document.getElementById('fp-num').value.trim(),
@@ -4699,18 +4702,48 @@ const Render={
       tipo:document.getElementById('fp-tipo').value,
       status:document.getElementById('fp-st').value,
       prio:document.getElementById('fp-prio').value,
-      criado:id?((DB.get('processos')||[]).find(x=>x.id===id)?.criado||''):new Date().toLocaleDateString('pt-BR'),
+      criado:id?(antigo?.criado||''):new Date().toLocaleDateString('pt-BR'),
       obs:'',
     };
     if(!novo.numero||!novo.assunto){alert('Preencha Número e Assunto.');return;}
     const proc=DB.get('processos')||[];
     if(id)DB.set('processos',proc.map(p=>p.id===id?novo:p));
     else DB.set('processos',[...proc,novo]);
+
+    // Log — trilha de auditoria por campo
+    const logs=DB.get('logs')||[];
+    const u=Auth.user;
+    let diffTxt='';
+    if(antigo){
+      const compara=[
+        ['Assunto',antigo.assunto,novo.assunto],['Responsável',antigo.resp,novo.resp],
+        ['Prazo',antigo.prazo,novo.prazo],['Tipo',antigo.tipo,novo.tipo],
+        ['Status',antigo.status,novo.status],['Prioridade',antigo.prio,novo.prio],
+      ];
+      const mudou=compara.filter(([,de,para])=>String(de)!==String(para));
+      if(mudou.length) diffTxt=' | '+mudou.map(([lbl,de,para])=>`${lbl}: "${de}"→"${para}"`).join('; ');
+    }
+    logs.unshift({
+      dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo: id?'EDIÇÃO':'CRIAÇÃO',
+      desc:`${id?'Processo editado':'Novo processo criado'}: ${novo.numero} por ${u?.nome||'?'}${diffTxt}`
+    });
+    DB.set('logs',logs.slice(0,200));
+
     Modal.close();Render.processos();
   },
   _delProc(id){
     if(!confirm('Excluir este processo?'))return;
-    DB.set('processos',(DB.get('processos')||[]).filter(p=>p.id!==id));
+    const proc=DB.get('processos')||[];
+    const alvo=proc.find(p=>p.id===id);
+    DB.set('processos',proc.filter(p=>p.id!==id));
+    const logs=DB.get('logs')||[];
+    logs.unshift({
+      dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo:'EXCLUSÃO',
+      desc:`Processo excluído: ${alvo?.numero||id} por ${Auth.user?.nome||'?'}`
+    });
+    DB.set('logs',logs.slice(0,200));
     Render.processos();
   },
 
@@ -5092,6 +5125,68 @@ const Render={
           </div>
         </div>`).join('')}
       </div>`;
+  },
+
+  // ── EXPORTAR ESCALA PARA CALENDÁRIO PESSOAL (.ics) ──────────────────
+  // Um evento de dia inteiro por dia de SERVIÇO (ou "a critério" do chefe),
+  // em TODAS as semanas com escala já lançada em escalaSemanas — o membro
+  // assina o arquivo no Google/Apple Calendar e recebe lembrete nativo,
+  // sem depender de abrir o app.
+  _segundaDaSemanaISO(chave){
+    const m=String(chave||'').match(/^(\d{4})-W(\d{2})$/);
+    if(!m) return null;
+    const ano=+m[1], semana=+m[2];
+    const jan4=new Date(Date.UTC(ano,0,4));
+    const diaSemanaJan4=jan4.getUTCDay()||7;
+    const segundaSemana1=new Date(jan4);
+    segundaSemana1.setUTCDate(jan4.getUTCDate()-diaSemanaJan4+1);
+    const alvo=new Date(segundaSemana1);
+    alvo.setUTCDate(segundaSemana1.getUTCDate()+(semana-1)*7);
+    return alvo;
+  },
+  _icsData(d){ // YYYYMMDD em UTC, pra evento de dia inteiro (VALUE=DATE)
+    return `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}`;
+  },
+  _exportarICS(){
+    const u=Auth.user;
+    const semanas=DB.get('escalaSemanas')||{};
+    const chaves=Object.keys(semanas).sort();
+    if(!chaves.length){ Toast.error('Nenhuma escala lançada ainda pra exportar.'); return; }
+
+    const eventos=[];
+    chaves.forEach(chave=>{
+      const seg=this._segundaDaSemanaISO(chave);
+      if(!seg) return;
+      const arr=Escala.getStatusByKey(u.rg,chave);
+      arr.forEach((st,i)=>{
+        if(st!=='SERVIÇO'&&st!=='A_CRITERIO') return;
+        const dia=new Date(seg); dia.setUTCDate(seg.getUTCDate()+i);
+        const fim=new Date(dia); fim.setUTCDate(dia.getUTCDate()+1);
+        eventos.push({dia,fim,critério:st==='A_CRITERIO'});
+      });
+    });
+
+    if(!eventos.length){ Toast.error('Nenhum dia de serviço encontrado na sua escala.'); return; }
+
+    const agora=this._icsData(new Date())+'T'+new Date().toISOString().slice(11,19).replace(/:/g,'')+'Z';
+    let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SPAEI DIGITAL//COE-PMERJ//PT\r\nCALSCALE:GREGORIAN\r\n';
+    eventos.forEach((ev,i)=>{
+      ics+='BEGIN:VEVENT\r\n';
+      ics+=`UID:spaei-${this._icsData(ev.dia)}-${normRG(u.rg)}-${i}@spaei-digital\r\n`;
+      ics+=`DTSTAMP:${agora}\r\n`;
+      ics+=`DTSTART;VALUE=DATE:${this._icsData(ev.dia)}\r\n`;
+      ics+=`DTEND;VALUE=DATE:${this._icsData(ev.fim)}\r\n`;
+      ics+=`SUMMARY:🪖 SPAEI - ${ev.critério?'A Critério':'Serviço'}\r\n`;
+      ics+=`DESCRIPTION:Escala SPAEI/COE-PMERJ — ${escHtml(u.posto)} ${escHtml(u.nome)}\r\n`;
+      ics+='END:VEVENT\r\n';
+    });
+    ics+='END:VCALENDAR\r\n';
+
+    const blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download='SPAEI_Minha_Escala.ics'; a.click();
+    URL.revokeObjectURL(a.href);
+    Toast.success(`📲 ${eventos.length} dia(s) exportado(s) — abra o arquivo no seu app de calendário`);
   },
 
   // Escapa um campo para CSV: sempre entre aspas, dobrando aspas internas.
@@ -5694,13 +5789,25 @@ ${extra||''}
     if(afTipo){ Afast.set(rg,{tipo:afTipo,dataIni:afIni,dataFim:afFim||null,obs:afObs}); }
     else{ Afast.clear(rg); }
 
-    // Log
+    // Log — trilha de auditoria por campo (de → para), só dos campos que realmente mudaram
     const logs=DB.get('logs')||[];
     const u=Auth.user;
+    const antigo = id!=null ? ef.find(e=>e.id===id) : null;
+    let diffTxt='';
+    if(antigo){
+      const compara=[
+        ['Posto',antigo.posto,posto],['Nome',antigo.nome,nome],['Função',antigo.funcao,funcao],
+        ['RG',antigo.rg,rg],['Perfil',(antigo.chefe?'CHEFE':antigo.admin?'ADMIN':'MEMBRO'),perfil],
+        ['Adido',antigo.adido?'Sim':'Não',adido?'Sim':'Não'],['Ativo',antigo.ativo!==false?'Sim':'Não',ativo?'Sim':'Não'],
+        ['Aptidão',antigo.aptidao||'—',aptidao||'—'],['Validade Aptidão',antigo.aptidaoValidade||'—',aptidaoValidade||'—'],
+      ];
+      const mudou=compara.filter(([,de,para])=>String(de)!==String(para));
+      if(mudou.length) diffTxt=' | '+mudou.map(([lbl,de,para])=>`${lbl}: "${de}"→"${para}"`).join('; ');
+    }
     logs.unshift({
       dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-      tipo: id?'EDIÇÃO':'CRIAÇÃO',
-      desc:`${id?'Membro editado':'Novo membro adicionado'}: ${posto} ${nome} (RG ${rg}) — Perfil: ${perfil}`
+      tipo: id!=null?'EDIÇÃO':'CRIAÇÃO',
+      desc:`${id!=null?'Membro editado':'Novo membro adicionado'}: ${posto} ${nome} (RG ${rg}) por ${u?.nome||'?'}${diffTxt}`
     });
     DB.set('logs',logs.slice(0,200));
 
