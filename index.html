@@ -348,7 +348,7 @@ tr:hover td{background:var(--hover)}
 .ef-card__foto{aspect-ratio:3/4;background:linear-gradient(160deg,#c9d0dc,#9ea8b9);position:relative;overflow:hidden;flex-shrink:0}
 .ef-card__foto img{width:100%;height:100%;object-fit:cover;object-position:top center}
 .ef-card__base{padding:7px 8px 9px;display:flex;flex-direction:column;gap:2px}
-.ef-card__posto{font-size:9px;font-weight:700;color:var(--az-fg,var(--az));text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ef-card__posto{font-size:9px;font-weight:700;color:#1a1bb0;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ef-card__rg{font-size:8.5px;color:#5a6273;font-weight:700;letter-spacing:.2px}
 .ef-card__nome{font-size:11.5px;font-weight:700;color:#1a2233;line-height:1.15;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:1px}
 .ef-card__funcao{font-size:9.5px;color:#5a6273;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -524,28 +524,6 @@ tr:hover td{background:var(--hover)}
   letter-spacing:.4px;padding:1px 5px;border-radius:8px;box-shadow:0 1px 4px rgba(4,0,63,.35)}
 .plan-day:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(4,0,63,.18);border-color:var(--az)}
 .plan-day:focus-visible{outline:2px solid var(--az-fg);outline-offset:2px}
-
-/* ── RADAR HIERÁRQUICO DA EQUIPE ── */
-.radar-wrap{display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:18px;align-items:start}
-@media(max-width:680px){.radar-wrap{grid-template-columns:1fr}}
-.radar-svg-box{width:100%;max-width:300px;margin:0 auto}
-.radar-svg{width:100%;height:auto;overflow:visible}
-.radar-sweep{animation:radarRotate 6s linear infinite}
-@keyframes radarRotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-.radar-dot{transition:r .15s}
-.radar-dot:hover{r:6}
-.radar-legenda{display:flex;flex-direction:column;gap:12px}
-.radar-leg-card{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:12px;background:var(--card2);border:1px solid var(--border)}
-.radar-leg-badge{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.radar-leg-hd{font-size:12px;font-weight:800;letter-spacing:.3px;margin-bottom:5px;display:flex;align-items:center;gap:6px}
-.radar-leg-count{font-size:10px;font-weight:700;color:var(--muted);background:var(--hover);padding:1px 7px;border-radius:10px}
-.radar-leg-list{display:flex;flex-direction:column;gap:3px}
-.radar-leg-item{font-size:11px;font-weight:600;color:var(--text);padding:2px 0;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.radar-leg-scroll{max-height:150px;overflow-y:auto;padding-right:2px}
-.radar-leg-scroll::-webkit-scrollbar{width:8px}
-.radar-leg-scroll::-webkit-scrollbar-track{background:transparent}
-.radar-leg-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:6px}
 
 /* ── PROGRESS BAR DE ENVIOS ── */
 .prog-bar{background:var(--card3);border-radius:6px;height:8px;margin:6px 0;overflow:hidden}
@@ -1135,7 +1113,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.37';
+const APP_VERSAO = '6.38';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -2112,97 +2090,6 @@ function sortEf(lista){
   });
 }
 // ════════════════════════════════════════════
-// RADAR HIERÁRQUICO DA EQUIPE — SVG puro, sem lib externa
-// Anéis concêntricos por hierarquia (cor mais intensa no centro → mais clara pra fora),
-// pontos distribuídos por pessoa dentro do anel do seu nível, varredura animada tipo radar.
-// ════════════════════════════════════════════
-function _htmlRadarEquipe(chefes,admins,membros,adidos){
-  const CX=150,CY=150;
-  const TIERS=[
-    {key:'chefe',  lista:chefes,  r:36,  cor:'#9d84d1',corD:'#5c4699',ico:'👔',lbl:'Chefia'},
-    {key:'admin',  lista:admins,  r:74,  cor:'#dba030',corD:'#8a5300',ico:'⭐',lbl:'Administração'},
-    {key:'membro', lista:membros, r:112, cor:'#898be6',corD:'#09008d',ico:'👤',lbl:'Membros'},
-    {key:'adido',  lista:adidos,  r:140, cor:'#dba030',corD:'#c77700',ico:'🔶',lbl:'Adidos'},
-  ].filter(t=>t.lista.length>0);
-  const rMax=TIERS.length?TIERS[TIERS.length-1].r:140;
-
-  // Grade de fundo (guias tracejadas, efeito radar técnico)
-  const grids=[0.28,0.52,0.76,1].map(f=>
-    `<circle cx="${CX}" cy="${CY}" r="${(rMax*f).toFixed(1)}" fill="none" stroke="rgba(207,212,220,.22)" stroke-width="1" stroke-dasharray="2,3"/>`
-  ).join('');
-
-  const raios=Array.from({length:12},(_,i)=>{
-    const a=i*(Math.PI*2/12);
-    const x=CX+rMax*Math.cos(a),y=CY+rMax*Math.sin(a);
-    return `<line x1="${CX}" y1="${CY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="rgba(207,212,220,.14)" stroke-width="1"/>`;
-  }).join('');
-
-  // Gradiente radial por nível: cor forte no centro do anel, esmaecendo pra fora
-  const defs=TIERS.map(t=>
-    `<radialGradient id="grad-${t.key}" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="${t.cor}" stop-opacity=".85"/>
-      <stop offset="70%" stop-color="${t.cor}" stop-opacity=".38"/>
-      <stop offset="100%" stop-color="${t.cor}" stop-opacity="0"/>
-    </radialGradient>`
-  ).join('')+`
-    <radialGradient id="radarSweepGrad" cx="0" cy="0" r="1">
-      <stop offset="0%" stop-color="#3538d4" stop-opacity=".5"/>
-      <stop offset="100%" stop-color="#3538d4" stop-opacity="0"/>
-    </radialGradient>`;
-
-  const aneis=[...TIERS].reverse().map(t=>
-    `<circle cx="${CX}" cy="${CY}" r="${t.r}" fill="url(#grad-${t.key})" stroke="${t.cor}" stroke-width="2" stroke-opacity=".9"/>`
-  ).join('');
-
-  // Pontos por pessoa — maiores, com contorno branco pra saltar aos olhos
-  const pontos=TIERS.map(t=>t.lista.map((m,i)=>{
-    const n=t.lista.length;
-    const a=n>1?(i*(Math.PI*2/n))-Math.PI/2:-Math.PI/2;
-    const rr=t.r-(t.key==='membro'?8:6)-((i%3)*3);
-    const x=CX+rr*Math.cos(a),y=CY+rr*Math.sin(a);
-    const raio=t.key==='chefe'?7:t.key==='admin'?5.5:t.key==='adido'?5:4;
-    const nome=`${m.posto} ${m.nome}`.replace(/"/g,'');
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${raio}" fill="${t.corD}" stroke="#fff" stroke-width="1.4" class="radar-dot"><title>${nome}</title></circle>`;
-  }).join('')).join('');
-
-  const varredura=`
-    <g class="radar-sweep" style="transform-origin:${CX}px ${CY}px">
-      <path d="M${CX},${CY} L${CX},${CY-rMax} A${rMax},${rMax} 0 0 1 ${(CX+rMax*Math.cos(-Math.PI/2+0.55)).toFixed(1)},${(CY+rMax*Math.sin(-Math.PI/2+0.55)).toFixed(1)} Z" fill="url(#radarSweepGrad)"/>
-    </g>`;
-
-  // Legenda lateral — cartão com selo colorido por nível, igual ao peso visual do modelo
-  const legendaTier=t=>`
-    <div class="radar-leg-card">
-      <div class="radar-leg-badge" style="background:${t.cor}22;border:2px solid ${t.cor}">
-        <span style="font-size:16px">${t.ico}</span>
-      </div>
-      <div style="min-width:0;flex:1">
-        <div class="radar-leg-hd" style="color:${t.cor}">${t.lbl} <span class="radar-leg-count">${t.lista.length}</span></div>
-        <div class="radar-leg-list${t.key==='membro'?' radar-leg-scroll':''}">
-          ${t.lista.map(m=>`<div class="radar-leg-item">${escHtml(m.posto)} ${escHtml(m.nome)}</div>`).join('')}
-        </div>
-      </div>
-    </div>`;
-
-  return `
-  <div class="radar-wrap">
-    <div class="radar-svg-box">
-      <svg viewBox="0 0 300 300" class="radar-svg" role="img" aria-label="Radar hierárquico da equipe SPAEI">
-        <defs>${defs}</defs>
-        ${grids}
-        ${raios}
-        ${aneis}
-        ${varredura}
-        ${pontos}
-        <circle cx="${CX}" cy="${CY}" r="4" fill="#3538d4"/>
-      </svg>
-    </div>
-    <div class="radar-legenda">
-      ${TIERS.map(legendaTier).join('')}
-    </div>
-  </div>`;
-}
-
 function statCard(ico,lbl,val,cor,sub,drawerKey){
   const click=drawerKey?`onclick="Drawer.open('${drawerKey}')" tabindex="0" role="button" title="Ver detalhes de ${lbl}"`:'';
   const cls=drawerKey?'stat-card clickable':'stat-card';
@@ -2959,11 +2846,13 @@ async function _onFotoSelecionada(inputEl,rg){
     Toast.error('Não foi possível processar a foto: '+(e&&e.message||'erro desconhecido'));
   }
 }
-function _removerFotoMembro(rg,nomeCurto){
+function _removerFotoMembro(rg){
+  const m=(DB.get('efetivo')||[]).find(x=>normRG(x.rg)===normRG(rg));
+  const nomeCurto=m?m.nome.split(' ')[0]:'este militar';
   if(!confirm(`Remover a foto de ${nomeCurto}?`))return;
   Fotos.remover(rg);
   Toast.success('🗑️ Foto removida');
-  Render._editMembro(DB.get('efetivo').find(m=>normRG(m.rg)===normRG(rg))?.id ?? null);
+  Render._editMembro(m?.id ?? null);
 }
 function _htmlFotoPlaceholder(){
   return`<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8a93a6;background:linear-gradient(160deg,#c9d0dc,#9ea8b9)">
@@ -3752,8 +3641,7 @@ const Render={
         </div>`).join('')}
       </div>`:''}
 
-      <!-- PAINEL: EFETIVO DO DIA (cards com foto — substitui o Radar Hierárquico da Equipe;
-           _htmlRadarEquipe/.radar-* ficam no código, sem uso, caso seja necessário reverter) -->
+      <!-- PAINEL: EFETIVO DO DIA (cards com foto — substitui o antigo Radar Hierárquico) -->
       <div class="dash-panel" style="border-top:3px solid #7c5cbf;margin-bottom:16px">
         <div class="dash-panel-header">
           <div class="dash-panel-title">🪖 Efetivo do Dia</div>
@@ -5302,7 +5190,7 @@ ${extra||''}
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
             <label class="btn btn-ghost btn-sm" style="cursor:pointer">📷 ${Fotos.get(m.rg)?'Substituir':'Adicionar'}
               <input type="file" accept="image/*" style="display:none" onchange="_onFotoSelecionada(this,'${m.rg}')"></label>
-            ${Fotos.get(m.rg)?`<button type="button" class="btn btn-ghost btn-sm" style="color:#c0392b" onclick="_removerFotoMembro('${m.rg}','${escHtml(m.nome.split(' ')[0])}')">🗑️ Remover</button>`:''}
+            ${Fotos.get(m.rg)?`<button type="button" class="btn btn-ghost btn-sm" style="color:#c0392b" onclick="_removerFotoMembro('${m.rg}')">🗑️ Remover</button>`:''}
           </div>
           <div id="mb-foto-msg" style="display:none;font-size:11px;font-weight:700;margin-top:6px"></div>
           <div style="font-size:9px;color:var(--muted);margin-top:6px">JPG/PNG, recorte automático 3×4, salva imediatamente.</div>`
