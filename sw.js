@@ -47,9 +47,18 @@ self.addEventListener('fetch', (event) => {
   // Navegação de página (não asset): sempre tenta a rede primeiro com um
   // timeout curto — numa conexão lenta ou instável, não faz sentido esperar
   // indefinidamente antes de cair no cache; melhor mostrar algo rápido.
+  // cache:'no-store' é o que faz esse "network-first" ser de verdade: sem
+  // isso, o fetch() abaixo podia ser respondido pelo cache HTTP do próprio
+  // navegador/CDN (Cache-Control da resposta), sem sequer ir à rede —
+  // fazendo o SW achar que buscou fresco quando só devolveu algo antigo já
+  // guardado num cache diferente deste (o do CacheStorage, que este SW
+  // controla, e que já era sempre atualizado). GAP REAL encontrado em
+  // auditoria (25/08), nunca reproduzido em produção, corrigido por
+  // completude — fecha a única lacuna teórica que restava no mecanismo de
+  // atualização automática.
   event.respondWith(
     Promise.race([
-      fetch(req).then((res) => {
+      fetch(req, { cache: 'no-store' }).then((res) => {
         const resClone = res.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone)).catch(() => {});
         return res;
