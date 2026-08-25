@@ -1159,7 +1159,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.51';
+const APP_VERSAO = '6.52';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1175,6 +1175,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // chama de novo com o offset real do servidor.
   if(typeof bannerRelogioIncorreto==='function') bannerRelogioIncorreto();
   if(typeof bannerModoTV==='function') bannerModoTV();
+  if(typeof iniciarWatchdogVersao==='function') iniciarWatchdogVersao();
 });
 const FB_NODE = 'spaei'; // nó raiz no Realtime Database
 
@@ -1222,6 +1223,57 @@ function bannerModoTV(){
     document.body.prepend(el);
   } else if(!ativo && el){ el.remove(); }
   return ativo;
+}
+
+// ════════════════════════════════════════════
+// WATCHDOG DE VERSÃO PUBLICADA (25/08) — ANTÍDOTO ANTI-DESATUALIZAÇÃO
+// O registro do SW com "?v="+APP_VERSAO garante que uma página CARREGADA DE
+// NOVO sempre pega a versão certa, mas não resolve o caso real: uma aba já
+// aberta há dias (TV/tablet) roda o JS antigo em memória, com APP_VERSAO
+// antigo já lido — reg.update() do SW nesse cenário compara sempre a MESMA
+// URL antiga (?v=antigo) contra o mesmo sw.js (que não muda de conteúdo
+// entre versões), então NUNCA detecta a versão nova sozinho nessa aba.
+// version.json é publicado à parte a cada release (ver rito de deploy) e
+// buscado com cache:'no-store' — ignora Cache-Control do servidor e força
+// ida à rede de verdade, funcionando igual no GitHub Pages (sem headers
+// customizáveis) e no Firebase Hosting.
+// ════════════════════════════════════════════
+let _versaoNovaDetectada = null;
+async function _checarVersaoPublicada(){
+  try{
+    const r = await fetch('./version.json?_='+Date.now(), {cache:'no-store'});
+    if(!r.ok) return;
+    const d = await r.json();
+    if(d && d.v && d.v !== APP_VERSAO && d.v !== _versaoNovaDetectada){
+      _versaoNovaDetectada = d.v;
+      bannerVersaoNova(d.v);
+    }
+  }catch(e){ /* offline/erro de rede: silencioso, tenta de novo no próximo ciclo */ }
+}
+function bannerVersaoNova(novaVersao){
+  if(document.getElementById('banner-versao-nova')) return;
+  const tv = tvModeAtivo();
+  const el = document.createElement('div');
+  el.id = 'banner-versao-nova';
+  el.style.cssText = `position:fixed;bottom:0;left:0;right:0;z-index:10001;background:#0F2045;
+    color:#fff;font:700 12px/1.4 system-ui,sans-serif;text-align:center;padding:10px 14px;
+    box-shadow:0 -2px 12px rgba(0,0,0,.35);display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap`;
+  el.innerHTML = tv
+    ? `🔄 Nova versão (v${novaVersao}) publicada — atualizando este dispositivo automaticamente…`
+    : `🔄 Nova versão (v${novaVersao}) disponível. <button style="background:#C8AA00;color:#0F2045;border:none;border-radius:8px;padding:6px 14px;font-weight:800;cursor:pointer" onclick="forcarAtualizacaoCompleta()">Atualizar agora</button>`;
+  document.body.appendChild(el);
+  // Dispositivo em Modo TV não tem operador pra clicar — atualiza sozinho,
+  // com um respiro curto só pra o aviso ficar legível em vez de recarregar
+  // na cara (mesmo princípio já usado pra escrita: tela sem operador nunca
+  // depende de ação humana).
+  if(tv) setTimeout(()=>{ if(typeof forcarAtualizacaoCompleta==='function') forcarAtualizacaoCompleta(); }, 8000);
+}
+function iniciarWatchdogVersao(){
+  _checarVersaoPublicada();
+  setInterval(_checarVersaoPublicada, 5*60*1000);
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible') _checarVersaoPublicada();
+  });
 }
 
 // ════════════════════════════════════════════
