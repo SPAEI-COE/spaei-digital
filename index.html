@@ -1161,7 +1161,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.55';
+const APP_VERSAO = '6.56';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -2947,10 +2947,16 @@ const Escala={
     return false;
   },
 
-  // Registra envio da escala pelo membro
-  enviar(rg){
+  // Registra envio da escala pelo membro. weekKeyOpt: chave EXPLÍCITA da
+  // semana (27/08, varredura forense — mesmo "irmão" do bug de
+  // Escala.desbloquear/chaveAtual ambiente: _enviarProgramacao() já monta o
+  // resumo do confirm() com chaveProx explícita, mas chamava enviar() sem
+  // passar nada — se um ADM (que pode navegar semana atual/próxima em
+  // outras telas) estivesse com Nav.escOffset=0 no instante do clique,
+  // gravava o envio na semana ERRADA mesmo com o resumo mostrado certo).
+  enviar(rg,weekKeyOpt){
     const envios=DB.get('envios')||{};
-    const key=this.chaveAtual();
+    const key=weekKeyOpt||this.chaveAtual();
     if(!envios[rg]) envios[rg]={};
     envios[rg][key]={
       enviadoEm:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',
@@ -2961,7 +2967,7 @@ const Escala={
     const logs=DB.get('logs')||[];
     const u=Auth.user;
     logs.unshift({dt:envios[rg][key].enviadoEm,tipo:'ENVIO',
-      desc:`Programação enviada: ${u.posto} ${u.nome} (RG ${rg}) — Semana ${getLabelSemana()}`});
+      desc:`Programação enviada: ${u.posto} ${u.nome} (RG ${rg}) — Semana ${key}`});
     DB.set('logs',logs.slice(0,200));
   },
 
@@ -3859,7 +3865,15 @@ const Toast={
       color:#fff;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:700;
       z-index:9999;box-shadow:0 4px 20px rgba(4,0,63,.35);max-width:340px;
       animation:toastIn .25s ease-out;transition:opacity .3s,top .3s`;
-    el.innerHTML=`${icons[type]||''} ${msg}`;
+    /* CORREÇÃO 27/08/2026 (varredura forense) — Toast.show() fazia innerHTML
+       direto de `msg` sem escHtml, e pelo menos 11 call sites (inclusive os
+       de hoje: _desbloquearEscala, _liberarTodosProximaSemana) inserem nome
+       de militar — dado livre, digitado pelo ADM ao cadastrar — dentro da
+       mensagem. Um nome com `<img src=x onerror=...>` executaria na tela de
+       quem disparasse qualquer toast que o citasse. Corrigido na raiz (1
+       ponto, não os 11+ call sites) — msg sempre escapado; só o ícone (string
+       fixa nossa, nunca dado do usuário) fica de fora do escape. */
+    el.innerHTML=`${icons[type]||''} ${esc(msg)}`;
     document.body.appendChild(el);
     this._queue.push(el);
     const remove=()=>{
@@ -4847,7 +4861,7 @@ const Render={
         const ef=DB.get('efetivo')||[];
         Motor.gerarBase(chaveProx,ef);
       }
-      Escala.enviar(user.rg);
+      Escala.enviar(user.rg,chaveProx);
       Render.folgas();
       const labelS=`${DIAS[0].dt}–${DIAS[6].dt}`;
       Toast.success(`Programação enviada! Semana ${labelS}`,5000);
