@@ -1159,7 +1159,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.54';
+const APP_VERSAO = '6.55';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -6290,6 +6290,28 @@ ${legendaHtml}
     Toast.warning(`Senha pessoal resetada: ${primeiroNome}. Próximo acesso será com Token COE2026.`);
   },
 
+  // Helper compartilhado: desbloqueia um membro pra uma semana, cobrindo os
+  // 2 mecanismos independentes que isEnviado() reconhece como bloqueio —
+  // envio real (envios/) e regularização do ADM (isencoesAdm/). Usado tanto
+  // pelo desbloqueio individual quanto pela liberação em massa, pra nunca
+  // mais os dois caminhos divergirem (27/08: o desbloqueio individual só
+  // tratava envio real; um membro regularizado sem nunca ter enviado dava
+  // "Não foi possível liberar" mesmo estando genuinamente bloqueado no
+  // _editCell — mesma classe do bug do apóstrofo/onclick de 21/08: 1
+  // correção não generalizada pro "irmão" reaparece como bug relatado de
+  // novo). Retorna true se algo foi realmente alterado.
+  _liberarBloqueio(rg,weekKey){
+    let mexeu=false;
+    if(Escala.desbloquear(rg,weekKey)) mexeu=true;
+    const isencoes=DB.get('isencoesAdm')||{};
+    if(isencoes[rg]&&isencoes[rg][weekKey]){
+      delete isencoes[rg][weekKey];
+      DB.set('isencoesAdm',isencoes);
+      mexeu=true;
+    }
+    return mexeu;
+  },
+
   _desbloquearEscala(rg){
     const ef=DB.get('efetivo')||[];
     const m=ef.find(e=>e.rg===rg);
@@ -6300,21 +6322,21 @@ ${legendaHtml}
        "desbloquear" como sinônimo de "próxima semana", mas Escala.desbloquear()
        usava this.chaveAtual() (ambiente, depende de Nav.escOffset) em vez de
        chave EXPLÍCITA — mesma classe de bug corrigida em ~13 outros pontos em
-       15/08 (v6.28/29), nunca replicada aqui. Se o ADM estivesse com
-       Nav.escOffset=0 (semana atual) no momento do clique — bem provável numa
-       semana com "diversas alterações" — o desbloqueio gravava na semana
-       ERRADA; a checagem real (isEnviado com chave explícita da PRÓXIMA
-       semana, nos 2 lugares que mostram este botão) nunca via o flag. Também
-       corrigido: Escala.desbloquear() não usava _achaRG (tolerância de
-       formatação de RG), podendo virar no-op silencioso; e o re-render após
-       sucesso sempre chamava Render.admin(), errado quando disparado da tela
-       Folgas (2º call site, Gestão de Efetivo). */
+       15/08 (v6.28/29), nunca replicada aqui. Também corrigido: RG sem
+       tolerância de formatação (_achaRG); re-render sempre chamava
+       Render.admin(), errado quando disparado da tela Folgas. CORREÇÃO 2
+       (mesmo dia, reportada em seguida pelo usuário — "apareceu erro"):
+       usa agora _liberarBloqueio(), que também limpa isencoesAdm — um
+       membro regularizado pelo ADM sem nunca ter enviado formalmente ficava
+       bloqueado no _editCell sem nenhum envio pra Escala.desbloquear()
+       achar, e o erro honesto (v6.53) revelou esse caso que antes falhava
+       em silêncio. */
     const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
     const labelProxima=`${calcSemana(1)[0].dt} a ${calcSemana(1)[6].dt}/${calcSemana(1)[6].jsDate.getFullYear()}`;
     if(!confirm(`Desbloquear a escala de ${m?.posto||''} ${m?.nome||rg} para a semana ${labelProxima}?\n\nO membro poderá editar e reenviar a programação.`))return;
-    const ok=Escala.desbloquear(rg,chaveProxima);
+    const ok=this._liberarBloqueio(rg,chaveProxima);
     if(!ok){
-      Toast.error(`Não foi possível liberar ${primeiroNome}: nenhum envio encontrado pra essa semana. Nada foi alterado.`);
+      Toast.error(`Não foi possível liberar ${primeiroNome}: nenhum bloqueio encontrado pra essa semana (nem envio, nem regularização). Nada foi alterado.`);
       return;
     }
     if(Nav.current==='folgas') Render.folgas(); else Render.admin();
@@ -6323,36 +6345,20 @@ ${legendaHtml}
 
   /* AÇÃO EM MASSA 27/08/2026 (pedido explícito do usuário): "liberar todos os
      membros, exceto chefes, pra marcarem folgas/dispensas da próxima semana".
-     Reaproveita Escala.desbloquear(rg,weekKeyOpt) recém corrigido — mesma
-     função, mesma chave explícita, mesma tolerância de RG — em vez de
-     reimplementar a lógica de desbloqueio; roda 1 vez por membro, cada
-     chamada já loga individualmente (tipo DESBLOQUEIO) no Firebase real.
-     Só afeta quem JÁ enviou e está bloqueado (Escala.isEnviado===true por
-     envio real, não por isenção/afastamento — desbloquear() não acha envio
-     nesses casos e retorna false, no-op seguro); quem ainda não enviou já
-     está livre pra marcar, nada a fazer. Chefes ficam de fora (A_CRITERIO,
-     regra própria, nunca "enviam" escala no sentido usado aqui). */
+     Reaproveita _liberarBloqueio(rg,weekKey) — mesma função usada pelo
+     desbloqueio individual, cobre envio real E regularização do ADM — em vez
+     de reimplementar a lógica duas vezes. Chefes ficam de fora (A_CRITERIO,
+     regra própria, nunca "enviam"/são "regularizados" no sentido usado aqui).*/
   _liberarTodosProximaSemana(){
     const ef=DB.get('efetivo')||[];
     const alvo=ef.filter(m=>!m.chefe);
     const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
     const labelProxima=`${calcSemana(1)[0].dt} a ${calcSemana(1)[6].dt}/${calcSemana(1)[6].jsDate.getFullYear()}`;
     if(!confirm(`Liberar TODOS os membros (exceto chefes — ${alvo.length} militares no efetivo) pra marcar/remarcar a escala da semana ${labelProxima}?\n\nSó afeta quem está bloqueado (enviou ou foi regularizado pelo ADM); quem ainda não enviou já está livre normalmente.`))return;
-    // isEnviado() é true por 2 mecanismos independentes — envio real
-    // (envios/{rg}/{key}) OU regularização do ADM (isencoesAdm/{rg}/{key}).
-    // Escala.desbloquear() só resolve o 1º; o 2º trava o próprio membro na
-    // MESMA checagem (_editCell, linha "Programação já enviada") sem que
-    // exista nenhum envio pra desbloquear — precisa limpar os dois pra
-    // "liberar de verdade" valer pra todo mundo bloqueado.
-    const isencoes=DB.get('isencoesAdm')||{};
-    let isencoesMudou=false, liberados=0, jaLivres=0;
+    let liberados=0, jaLivres=0;
     alvo.forEach(m=>{
-      let mexeu=false;
-      if(Escala.desbloquear(m.rg,chaveProxima)) mexeu=true;
-      if(isencoes[m.rg]&&isencoes[m.rg][chaveProxima]){ delete isencoes[m.rg][chaveProxima]; isencoesMudou=true; mexeu=true; }
-      if(mexeu) liberados++; else jaLivres++;
+      if(this._liberarBloqueio(m.rg,chaveProxima)) liberados++; else jaLivres++;
     });
-    if(isencoesMudou) DB.set('isencoesAdm',isencoes);
     const logs=DB.get('logs')||[];
     const u=Auth.user;
     logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
