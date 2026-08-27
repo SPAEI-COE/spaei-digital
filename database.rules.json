@@ -1,0 +1,46 @@
+{
+  "rules": {
+    "spaei": {
+      ".read": true,
+      ".write": true,
+
+      "efetivo": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "escala": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "processos": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "avisos": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "logs": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "tokens": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "afastamentos": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "afastHist": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "isencoesAdm": { ".validate": "newData.hasChildren() || newData.val() == null" },
+      "fotos": { ".validate": "newData.hasChildren() || newData.val() == null" },
+
+      "envios": {
+        "$rg": {
+          "$semana": {
+            ".validate": "newData.hasChild('enviadoEm') || newData.hasChild('desbloqueado') || newData.val() == null"
+          }
+        }
+      },
+
+      "escalaSemanas": {
+        "$semana": {
+          "$rg": {
+            ".validate": "(newData.hasChildren() && newData.val().length == 7) || newData.val() == null"
+          }
+        }
+      },
+
+      "pins": {
+        "$rg": {
+          ".validate": "newData.hasChild('hash') && newData.hasChild('salt') || newData.val() == null"
+        }
+      },
+      "admSenhas": {
+        "$rg": {
+          ".validate": "newData.hasChild('hash') && newData.hasChild('salt') || newData.val() == null"
+        }
+      }
+    }
+  }
+}
