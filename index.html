@@ -1159,7 +1159,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.53';
+const APP_VERSAO = '6.54';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -5718,6 +5718,8 @@ ${legendaHtml}
           <div class="sec-title">Painel Administrativo</div>
           <div class="sec-sub">Gestão avançada do sistema — acesso restrito</div>
         </div>
+        <button class="btn btn-ghost btn-sm" style="color:#7c5cbf;border-color:rgba(124,92,191,.35)"
+          onclick="Render._liberarTodosProximaSemana()">🔓 Liberar todos (exceto chefes) — próxima semana</button>
       </div>
       <div class="tabs">
         ${[['efetivo','👥 Efetivo'],['tokens','🔑 Tokens'],['logs','📋 Logs'],['backup','💾 Backup'],['config','⚙️ Config']].map(([id,lbl])=>
@@ -6317,6 +6319,47 @@ ${legendaHtml}
     }
     if(Nav.current==='folgas') Render.folgas(); else Render.admin();
     Toast.purple(`Escala desbloqueada: ${primeiroNome}. Semana ${labelProxima}.`);
+  },
+
+  /* AÇÃO EM MASSA 27/08/2026 (pedido explícito do usuário): "liberar todos os
+     membros, exceto chefes, pra marcarem folgas/dispensas da próxima semana".
+     Reaproveita Escala.desbloquear(rg,weekKeyOpt) recém corrigido — mesma
+     função, mesma chave explícita, mesma tolerância de RG — em vez de
+     reimplementar a lógica de desbloqueio; roda 1 vez por membro, cada
+     chamada já loga individualmente (tipo DESBLOQUEIO) no Firebase real.
+     Só afeta quem JÁ enviou e está bloqueado (Escala.isEnviado===true por
+     envio real, não por isenção/afastamento — desbloquear() não acha envio
+     nesses casos e retorna false, no-op seguro); quem ainda não enviou já
+     está livre pra marcar, nada a fazer. Chefes ficam de fora (A_CRITERIO,
+     regra própria, nunca "enviam" escala no sentido usado aqui). */
+  _liberarTodosProximaSemana(){
+    const ef=DB.get('efetivo')||[];
+    const alvo=ef.filter(m=>!m.chefe);
+    const chaveProxima=chaveDeData(calcSemana(1)[0].jsDate);
+    const labelProxima=`${calcSemana(1)[0].dt} a ${calcSemana(1)[6].dt}/${calcSemana(1)[6].jsDate.getFullYear()}`;
+    if(!confirm(`Liberar TODOS os membros (exceto chefes — ${alvo.length} militares no efetivo) pra marcar/remarcar a escala da semana ${labelProxima}?\n\nSó afeta quem está bloqueado (enviou ou foi regularizado pelo ADM); quem ainda não enviou já está livre normalmente.`))return;
+    // isEnviado() é true por 2 mecanismos independentes — envio real
+    // (envios/{rg}/{key}) OU regularização do ADM (isencoesAdm/{rg}/{key}).
+    // Escala.desbloquear() só resolve o 1º; o 2º trava o próprio membro na
+    // MESMA checagem (_editCell, linha "Programação já enviada") sem que
+    // exista nenhum envio pra desbloquear — precisa limpar os dois pra
+    // "liberar de verdade" valer pra todo mundo bloqueado.
+    const isencoes=DB.get('isencoesAdm')||{};
+    let isencoesMudou=false, liberados=0, jaLivres=0;
+    alvo.forEach(m=>{
+      let mexeu=false;
+      if(Escala.desbloquear(m.rg,chaveProxima)) mexeu=true;
+      if(isencoes[m.rg]&&isencoes[m.rg][chaveProxima]){ delete isencoes[m.rg][chaveProxima]; isencoesMudou=true; mexeu=true; }
+      if(mexeu) liberados++; else jaLivres++;
+    });
+    if(isencoesMudou) DB.set('isencoesAdm',isencoes);
+    const logs=DB.get('logs')||[];
+    const u=Auth.user;
+    logs.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+      tipo:'DESBLOQUEIO_MASSA',desc:`${u.posto} ${u.nome} liberou em massa (exceto chefes) — Semana ${labelProxima}: ${liberados} liberado(s), ${jaLivres} já livre(s)`});
+    DB.set('logs',logs.slice(0,200));
+    Render.admin();
+    Toast.purple(`${liberados} liberado(s) pra remarcar · ${jaLivres} já estavam livres. Semana ${labelProxima}.`);
   },
 
   // Mecanismo explícito do ADM pra tirar a marcação de IRREGULAR de um membro —
