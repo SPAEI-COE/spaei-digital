@@ -48,5 +48,8 @@ jobs:
           npm install -g firebase-tools
           npm install --no-save @firebase/rules-unit-testing
 
+      - name: Copiar database.rules.json pro path esperado pelo --config
+        run: cp database.rules.json tests/rules/database.rules.json
+
       - name: Rodar teste de regras contra o emulador
         run: firebase emulators:exec --config tests/rules/firebase.test.json --project spaei-digital-coe-teste "node tests/rules/rules.test.js"

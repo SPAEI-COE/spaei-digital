@@ -1,13 +1,15 @@
 {
   "database": {
-    "rules": "../../database.rules.json"
+    "rules": "database.rules.json"
   },
   "emulators": {
     "database": {
-      "port": 9000
+      "port": 9000,
+      "host": "127.0.0.1"
     },
     "hub": {
-      "port": 4400
+      "port": 4400,
+      "host": "127.0.0.1"
     }
   }
 }
