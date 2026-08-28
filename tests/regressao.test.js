@@ -176,6 +176,36 @@ async function main() {
     checar(`4.1 — ${N} envios simultâneos, zero perda`, ok === N, `${ok}/${N}`);
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 5 — Tela "Log de Auditoria" migrada pra Alpine.js (28/08):
+  // proteção real contra XSS via x-text (auto-escape arquitetural, não
+  // depende de lembrar escHtml() em cada ponto).
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, errosJs } = await bootApp();
+    window.eval(`
+      Auth.user = { rg:'ADM001', nome:'Admin Teste', posto:'CAP', admin:true };
+      DB.set('efetivo', [{rg:'ADM001', nome:'Admin Teste', posto:'CAP', chefe:false, admin:true}], 'seed');
+      _fbOk=true; _fbSynced=true;
+      _logAdd('LOGIN', 'CAP Admin Teste acessou (RG ADM001)');
+      _logAdd('EDIÇÃO', '<img src=x onerror="window.__xss_disparou=true">');
+      _logAdd('EXCLUSÃO', 'Nome com aspas duplas: "teste" e apóstrofo: O\\'BRIEN');
+    `);
+    await new Promise(r => setTimeout(r, 50));
+    window.eval(`DB.set('adm_tab','logs'); Render.admin();`);
+    await new Promise(r => setTimeout(r, 200));
+
+    checar('5.1 — Alpine.js carregou', window.eval('typeof Alpine !== "undefined"'));
+    const texto = window.eval(`document.getElementById('s-admin').textContent`);
+    checar('5.2 — log normal aparece como texto', texto.includes('Admin Teste acessou'));
+    checar('5.3 — tentativa de XSS (img onerror) vira texto literal', texto.includes('<img src=x onerror='));
+    checar('5.4 — XSS 1 NÃO EXECUTOU', window.eval('window.__xss_disparou === true') === false);
+    checar('5.5 — aspas duplas/apóstrofo aparecem literais (sem quebrar atributo)', texto.includes('aspas duplas: "teste"') && texto.includes("O'BRIEN"));
+    const imgReal = window.eval(`document.getElementById('s-admin').querySelector('img')`);
+    checar('5.6 — nenhum <img> real criado no DOM', imgReal === null);
+    checar('5.7 — zero erro JS não tratado', errosJs.length === 0, errosJs.join('; '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
