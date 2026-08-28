@@ -1,0 +1,12 @@
+{
+  "name": "spaei-digital-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Suite de regressão do SPAEI DIGITAL — roda contra o index.html real via jsdom + mock do Firebase RTDB. Não faz parte do app publicado (o app continua single-file, sem build step).",
+  "scripts": {
+    "test": "node tests/regressao.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}
