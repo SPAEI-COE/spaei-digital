@@ -11,7 +11,7 @@ async function bootApp(opts) {
   opts = opts || {};
   const latencyMs = opts.latencyMs === undefined ? 5 : opts.latencyMs;
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');
-  const { fb, store } = buildMockFirebase(latencyMs);
+  const { fb, store, appCheckCalls } = buildMockFirebase(latencyMs);
   const htmlSemFbSdk = html.replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs[^"]*"><\/script>/g, '');
 
   const errosJs = [];
@@ -33,7 +33,7 @@ async function bootApp(opts) {
   });
 
   await new Promise(r => setTimeout(r, 300));
-  return { window: dom.window, store, errosJs };
+  return { window: dom.window, store, errosJs, appCheckCalls };
 }
 
 module.exports = { bootApp };

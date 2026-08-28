@@ -68,9 +68,18 @@ function buildMockFirebase(latencyMs) {
     return r;
   }
   const db = { ref(p) { return makeRef(p); } };
-  const fb = { apps: [], initializeApp() { fb.apps.push({ database: () => db }); return { database: () => db }; }, database() { return db; } };
+  // Stub mínimo de App Check — só confirma que activate() roda sem lançar
+  // erro (não simula o fluxo real do reCAPTCHA, que exige rede/DOM reais).
+  const appCheckCalls = [];
+  const appCheckObj = { activate(siteKey, isTokenAutoRefreshEnabled) { appCheckCalls.push({ siteKey, isTokenAutoRefreshEnabled }); } };
+  const fb = {
+    apps: [],
+    initializeApp() { fb.apps.push({ database: () => db }); return { database: () => db }; },
+    database() { return db; },
+    appCheck() { return appCheckObj; },
+  };
   fb.database.ServerValue = { TIMESTAMP: Date.now() };
-  return { fb, store };
+  return { fb, store, appCheckCalls };
 }
 
 module.exports = { buildMockFirebase };
