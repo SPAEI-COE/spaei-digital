@@ -1176,7 +1176,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.63';
+const APP_VERSAO = '6.64';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1195,6 +1195,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if(typeof iniciarWatchdogVersao==='function') iniciarWatchdogVersao();
 });
 const FB_NODE = 'spaei'; // nó raiz no Realtime Database
+
+// ── Integração Telegram (29/08) — canal de avisos da seção + notificação
+// individual de processo atribuído. Backend em repo/projeto separado
+// (spaei-telegram-bot na Vercel), NUNCA guarda o token do bot aqui — só o
+// Vercel tem TELEGRAM_BOT_TOKEN via env var. TELEGRAM_API_KEY abaixo tem a
+// MESMA realidade de segurança do FIREBASE_CONFIG logo acima: barreira
+// contra tráfego aleatório da internet, não segredo real contra quem já lê
+// o código-fonte público (ver comentário em lib/cors.js do backend). Vínculo
+// (telegramLinks/telegramVinculos/telegramGrupoId) é lido/escrito DIRETO
+// neste mesmo Firebase (mesmo projeto, nó /spaei, mesma regra read/write:true
+// já usada por todo o resto do app) — só o ENVIO de mensagem passa pela API
+// da Vercel, porque só ela tem o token do bot.
+const TELEGRAM_BOT_USERNAME = 'spaei_bot';
+const TELEGRAM_API_BASE = 'https://spaei-telegram-bot.vercel.app';
+const TELEGRAM_API_KEY = '08594ebf1d25ed73781a4bc452707e7d91bf8422989d083f';
 
 // ════════════════════════════════════════════
 // MODO TV — DISPOSITIVO SOMENTE LEITURA (25/08)
@@ -3223,6 +3238,20 @@ function _logAdd(tipo, desc, dtOverride){
   DB.set('logs', logs.slice(0,200));
 }
 
+// Dispara notificação Telegram em segundo plano — NUNCA bloqueia nem afeta
+// o resultado da ação principal (o processo/aviso já foi salvo com sucesso
+// antes disso rodar). "sem_vinculo"/"grupo_nao_vinculado" são retornos
+// normais do backend (efetivo sem vínculo ainda, ou grupo não descoberto),
+// não erro — só falha real de rede vira aviso no console, sem Toast (não é
+// o que o usuário estava fazendo, não deve gerar alarme sobre o save real).
+function _telegramNotificar(endpoint, payload){
+  fetch(`${TELEGRAM_API_BASE}/api/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-spaei-key': TELEGRAM_API_KEY },
+    body: JSON.stringify(payload),
+  }).catch(e => console.warn(`Telegram (${endpoint}) — falha ao notificar:`, e));
+}
+
 // Isenção por intervenção do ADM: ao alterar a escala de outro membro, isenta-o naquela semana.
 function _registrarIsencaoAdm(rg,weekKey){
   const u=Auth&&Auth.user; if(!u||(!u.admin&&!u.chefe))return;
@@ -3977,7 +4006,7 @@ const Toast={
        quem disparasse qualquer toast que o citasse. Corrigido na raiz (1
        ponto, não os 11+ call sites) — msg sempre escapado; só o ícone (string
        fixa nossa, nunca dado do usuário) fica de fora do escape. */
-    el.innerHTML=`${icons[type]||''} ${esc(msg)}`;
+    el.innerHTML=`${icons[type]||''} ${escHtml(msg)}`;
     document.body.appendChild(el);
     this._queue.push(el);
     const remove=()=>{
@@ -5195,6 +5224,11 @@ const Render={
       <input class="form-inp" id="fp-ass" value="${escHtml(p.assunto||'')}" placeholder="Descrição do processo"></div>
     <div class="form-group"><label class="form-lbl">RESPONSÁVEL</label>
       <input class="form-inp" id="fp-resp" value="${escHtml(p.resp||'')}" placeholder="Posto e nome"></div>
+    <div class="form-group"><label class="form-lbl">NOTIFICAR NO TELEGRAM (opcional)</label>
+      <select class="form-sel" id="fp-resp-rg">
+        <option value="">— não notificar —</option>
+        ${(DB.get('efetivo')||[]).map(m=>`<option value="${escHtml(m.rg)}"${p.respRg===m.rg?' selected':''}>${escHtml(m.posto)} ${escHtml(m.nome)}</option>`).join('')}
+      </select></div>
     <div class="form-group"><label class="form-lbl">PRAZO</label>
       <input class="form-inp" id="fp-prazo" value="${escHtml(p.prazo||'')}" placeholder="DD/MM/AAAA"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
@@ -5223,6 +5257,7 @@ const Render={
       numero:document.getElementById('fp-num').value.trim(),
       assunto:document.getElementById('fp-ass').value.trim(),
       resp:document.getElementById('fp-resp').value.trim(),
+      respRg:document.getElementById('fp-resp-rg').value,
       prazo:document.getElementById('fp-prazo').value.trim(),
       tipo:document.getElementById('fp-tipo').value,
       status:document.getElementById('fp-st').value,
@@ -5234,6 +5269,13 @@ const Render={
     const proc=DB.get('processos')||[];
     if(id)DB.set('processos',proc.map(p=>p.id===id?novo:p));
     else DB.set('processos',[...proc,novo]);
+
+    // Telegram: notifica o responsável só quando é atribuição nova ou mudou
+    // (criação, troca de responsável, ou mudança de status) — nunca em toda
+    // edição irrelevante (ex. corrigir só o assunto sem mexer em resp/status)
+    if(novo.respRg && (!antigo || antigo.respRg!==novo.respRg || antigo.status!==novo.status)){
+      _telegramNotificar('notificar-processo', {rg:novo.respRg, numero:novo.numero, assunto:novo.assunto, status:novo.status, prazo:novo.prazo});
+    }
 
     // Log — trilha de auditoria por campo
     const u=Auth.user;
@@ -5577,6 +5619,11 @@ const Render={
     };
     av.unshift(novoAv);
     DB.set('avisos',av);
+
+    // Telegram: todo aviso publicado vai pro grupo da seção (broadcast único,
+    // independente do "dest" de dentro do app — grupo é sempre avisado)
+    _telegramNotificar('notificar-aviso', {titulo:tit, texto:txt});
+
     Modal.close();
     Render.avisos();
 
@@ -5852,7 +5899,7 @@ ${legendaHtml}
           onclick="Render._liberarTodosProximaSemana()">🔓 Liberar todos (exceto chefes) — próxima semana</button>
       </div>
       <div class="tabs">
-        ${[['efetivo','👥 Efetivo'],['tokens','🔑 Tokens'],['logs','📋 Logs'],['backup','💾 Backup'],['config','⚙️ Config']].map(([id,lbl])=>
+        ${[['efetivo','👥 Efetivo'],['telegram','📱 Telegram'],['tokens','🔑 Tokens'],['logs','📋 Logs'],['backup','💾 Backup'],['config','⚙️ Config']].map(([id,lbl])=>
           `<button class="tab-btn${tab===id?' on':''}" onclick="DB.set('adm_tab','${id}');Render.admin()">${lbl}</button>`).join('')}
       </div>
       <div id="adm-content"></div>`;
@@ -5936,6 +5983,20 @@ ${legendaHtml}
             </tbody>
           </table></div>
         </div>`;
+    } else if(tab==='telegram'){
+      box.innerHTML=`
+        <div id="adm-tg-grupo" style="margin-bottom:12px"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.8px">VÍNCULO INDIVIDUAL POR MEMBRO</div>
+          <button class="btn btn-ghost btn-sm" onclick="Render._carregarStatusTelegram()">🔄 Atualizar</button>
+        </div>
+        <div id="adm-tg-lista" style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
+          <div class="empty" style="padding:16px">Carregando…</div>
+        </div>
+        <div style="margin-top:12px;padding:12px 14px;border-radius:10px;background:var(--azcl);border:1px solid var(--border);font-size:11px;color:var(--muted)">
+          ℹ️ "Gerar link" cria um convite de uso único — envie por fora (WhatsApp etc.), o membro clica, abre o Telegram e confirma sozinho, sem precisar de você depois. A partir daí, todo Processo com "Notificar no Telegram" marcado e todo Aviso publicado chegam automaticamente pra ele / pro grupo.
+        </div>`;
+      Render._carregarStatusTelegram();
     } else if(tab==='tokens'){
       const pins=DB.get('pins')||{};
       const admSenhas=DB.get('admSenhas')||{};
@@ -6595,6 +6656,85 @@ ${legendaHtml}
         <button class="btn btn-ghost btn-sm" onclick="Render._confirmarRestauracao(window['_backupCache_${i}'])">♻️ Restaurar</button>
       </div>`;
     }).join('');
+  },
+
+  // ── TELEGRAM — status de vínculo lido DIRETO do Firebase (mesmo projeto,
+  // nó /spaei) — nunca via API da Vercel, que só existe pra enviar mensagem
+  // (única coisa que precisa do token do bot, secreto, fora do browser) ──
+  async _carregarStatusTelegram(){
+    const grupoBox=document.getElementById('adm-tg-grupo');
+    const box=document.getElementById('adm-tg-lista');
+    if(!box) return; // usuário já saiu da aba antes da resposta chegar
+    if(!_fbOk||!_fbDB){
+      if(grupoBox) grupoBox.innerHTML='';
+      box.innerHTML=`<div class="empty" style="padding:16px">Sem conexão com o Firebase agora — status indisponível.</div>`;
+      return;
+    }
+    let vinculos={}, grupoId=null;
+    try{
+      const [sV,sG]=await Promise.all([
+        _fbDB.ref(FB_NODE+'/telegramVinculos').once('value'),
+        _fbDB.ref(FB_NODE+'/telegramGrupoId').once('value'),
+      ]);
+      vinculos=sV.val()||{};
+      grupoId=sG.val()||null;
+    }catch(e){
+      if(document.getElementById('adm-tg-lista')!==box) return;
+      box.innerHTML=`<div class="empty" style="padding:16px">⚠️ Falha ao carregar: ${escHtml(e.message)}</div>`;
+      return;
+    }
+    if(document.getElementById('adm-tg-lista')!==box) return; // trocou de aba nesse meio-tempo
+
+    if(grupoBox){
+      grupoBox.innerHTML = grupoId
+        ? `<div style="padding:10px 14px;border-radius:10px;background:rgba(31,157,85,.1);border:1px solid rgba(31,157,85,.35);font-size:12px;font-weight:700;color:#1f9d55">✅ Grupo da seção vinculado — avisos publicados chegam lá automaticamente.</div>`
+        : `<div style="padding:10px 14px;border-radius:10px;background:var(--vmcl);border:1px solid rgba(192,57,43,.35);font-size:12px;font-weight:700;color:var(--vm)">⚠️ Grupo ainda não vinculado — adicione @${TELEGRAM_BOT_USERNAME} ao grupo da seção no Telegram e mande qualquer mensagem lá (é automático, sem comando nenhum).</div>`;
+    }
+
+    const ef=DB.get('efetivo')||[];
+    if(!ef.length){ box.innerHTML=`<div class="empty" style="padding:16px">Nenhum militar cadastrado.</div>`; return; }
+    box.innerHTML = ef.map((m,i)=>{
+      const v=vinculos[m.rg];
+      window['_efTgCache_'+i]=m;
+      const statusHTML = v
+        ? `<div style="color:#1f9d55;font-size:13px;font-weight:700;margin-top:3px">✅ Vinculado</div>
+           <div class="tok-dt">Desde ${escHtml(new Date(v.vinculadoEm).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}))}</div>`
+        : `<div style="color:#c77700;font-size:11px;font-weight:700;margin-top:2px">⏳ Ainda não vinculado</div>`;
+      return `<div class="tok-card" style="border-radius:0;border-left:3px solid ${v?'#13703e':'var(--border)'};${i<ef.length-1?'border-bottom:1px solid var(--border)':''}">
+        <div style="min-width:0;flex:1">
+          <div class="tok-rg">${escHtml(m.posto)} ${escHtml(m.nome)}</div>
+          ${statusHTML}
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          ${v?'':`<button class="btn btn-primary btn-sm" onclick="Render._gerarLinkTelegram(window['_efTgCache_${i}'])">🔗 Gerar link</button>`}
+        </div>
+      </div>`;
+    }).join('');
+  },
+
+  async _gerarLinkTelegram(m){
+    if(!_fbOk||!_fbDB){ Toast.error('Sem conexão com o Firebase agora.'); return; }
+    const token=uid();
+    try{
+      await _fbDB.ref(FB_NODE+'/telegramLinks/'+token).set({rg:m.rg, nome:m.nome||'', criadoEm:new Date().toISOString()});
+    }catch(e){ Toast.error('Não foi possível gerar o link: '+e.message); return; }
+    const link=`https://t.me/${TELEGRAM_BOT_USERNAME}?start=${token}`;
+    _logAdd('CRIAÇÃO', `Link de vínculo Telegram gerado para ${m.posto} ${m.nome}`);
+    Modal.open('Link de Vínculo Telegram', `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+        Envie este link por fora (WhatsApp etc.) para <b>${escHtml(m.posto)} ${escHtml(m.nome)}</b>. Uso único — some assim que ele confirmar.
+      </div>
+      <input class="form-inp" id="tg-link-txt" readonly value="${escHtml(link)}" style="font-size:12px" onclick="this.select()">
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn btn-ghost" onclick="Modal.close()">Fechar</button>
+        <button class="btn btn-primary" onclick="Render._copiarLinkTelegram('${link}')">📋 Copiar Link</button>
+      </div>`);
+  },
+
+  _copiarLinkTelegram(link){
+    navigator.clipboard.writeText(link)
+      .then(()=>Toast.success('🔗 Link copiado'))
+      .catch(()=>Toast.warning('Não foi possível copiar automaticamente — selecione e copie manualmente.'));
   },
 
   _restaurarDeArquivo(inputEl){
