@@ -1080,6 +1080,7 @@ body.member-mode #bottom-nav{display:flex}
       <div id="s-processos" class="screen"></div>
       <div id="s-dashproc"  class="screen"></div>
       <div id="s-avisos"    class="screen"></div>
+      <div id="s-telegram"  class="screen"></div>
       <div id="s-relatorios"class="screen"></div>
       <div id="s-admin"     class="screen"></div>
       <div id="s-perfil"    class="screen"></div>
@@ -1176,7 +1177,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.67';
+const APP_VERSAO = '6.68';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -4039,6 +4040,7 @@ const NAV_ITEMS=[
   {id:'processos', lbl:'Processos SEI',    ico:'📋'},
   {id:'dashproc',  lbl:'Dashboard de Processos', ico:'📊'},
   {id:'avisos',    lbl:'Avisos',           ico:'🔔',badge:true},
+  {id:'telegram',  lbl:'Canal Telegram',   ico:'💬',admin:true},
   {id:'relatorios',lbl:'Relatórios',       ico:'📊'},
   {id:'admin',     lbl:'Painel Admin',     ico:'⚙️',admin:true},
   {id:'perfil',    lbl:'Meu Perfil',       ico:'👤',memberOnly:true},
@@ -4092,9 +4094,9 @@ function buildNav(){
     html+=`<button class="nav-btn${Nav.current===n.id?' active':''}" data-nav="${n.id}" onclick="Nav.go('${n.id}')"><span class="nav-icon">${n.ico}</span><span style="flex:1">${n.lbl}</span>${badgeHtml}</button>`;
   });
   html+='<div class="nav-sec">COMUNICAÇÃO</div>';
-  ['avisos'].forEach(id=>{
+  ['avisos','telegram'].forEach(id=>{
     const n=items.find(x=>x.id===id);if(!n)return;
-    html+=`<button class="nav-btn${Nav.current===n.id?' active':''}" data-nav="${n.id}" onclick="Nav.go('${n.id}')"><span class="nav-icon">${n.ico}</span><span style="flex:1">${n.lbl}</span>${n.badge&&nl>0?`<span class="nav-badge">${nl}</span>`:''}</button>`;
+    html+=`<button class="nav-btn${Nav.current===n.id?' active':''}" data-nav="${n.id}" onclick="Nav.go('${n.id}')"><span class="nav-icon">${n.ico}</span><span style="flex:1">${n.lbl}</span>${n.badge&&nl>0?`<span class="nav-badge">${nl}</span>`:''}${id==='telegram'?'<span id="nav-telegram-badge"></span>':''}</button>`;
   });
   html+='<div class="nav-sec">ANÁLISE</div>';
   ['relatorios','dashproc'].forEach(id=>{
@@ -4113,6 +4115,7 @@ function buildNav(){
   }
   nav.innerHTML=html;
   buildBottomNav(nl,folgaPendente);
+  if(isAdmin&&typeof Render!=='undefined'&&Render._atualizarBadgeTelegram) Render._atualizarBadgeTelegram();
 }
 
 // ── Barra inferior estilo Instagram (modo membro) ──
@@ -6737,7 +6740,8 @@ ${legendaHtml}
 
   async _atualizarBadgeTelegram(){
     const el=document.getElementById('admtab-telegram-badge');
-    if(!el||!_fbOk||!_fbDB) return;
+    const elNav=document.getElementById('nav-telegram-badge');
+    if((!el&&!elNav)||!_fbOk||!_fbDB) return;
     try{
       const [sM,sL]=await Promise.all([
         _fbDB.ref(FB_NODE+'/telegramMensagens').once('value'),
@@ -6745,10 +6749,97 @@ ${legendaHtml}
       ]);
       const porThread=this._contarNaoLidasPorThread(sM.val()||{},sL.val()||{});
       const total=Object.values(porThread).reduce((a,b)=>a+b,0);
+      const badgeSpan = total>0?` <span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:2px">${total>99?'99+':total}</span>`:'';
       const el2=document.getElementById('admtab-telegram-badge');
-      if(!el2) return;
-      el2.innerHTML = total>0?` <span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:2px">${total>99?'99+':total}</span>`:'';
+      if(el2) el2.innerHTML=badgeSpan;
+      const elNav2=document.getElementById('nav-telegram-badge');
+      if(elNav2) elNav2.innerHTML = total>0?`<span class="nav-badge">${total>99?'99+':total}</span>`:'';
     }catch(e){ /* silencioso — badge é auxiliar, nunca deve travar o painel */ }
+  },
+
+  // ── TELA "CANAL TELEGRAM" — inbox estilo Telegram, item de menu próprio
+  // (antes só existia dentro de Admin > aba Telegram). Reaproveita tudo já
+  // testado: _abrirConversaTelegram, _gerarLinkTelegram, _contarNaoLidasPorThread.
+  telegram(){
+    if(!Auth.user?.admin){ document.getElementById('s-telegram').innerHTML='<div class="empty"><span class="empty-ico">🔒</span>Acesso restrito.</div>'; return; }
+    document.getElementById('s-telegram').innerHTML=`
+      <div class="sec-head">
+        <div><div class="sec-title">💬 Canal Telegram</div><div class="sec-sub">Conversas com o efetivo via bot @${TELEGRAM_BOT_USERNAME}</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="Render.telegram()">🔄 Atualizar</button>
+      </div>
+      <div id="tg-inbox-list"><div class="empty" style="padding:20px">Carregando…</div></div>`;
+    this._carregarInboxTelegram();
+  },
+
+  async _carregarInboxTelegram(){
+    const box=document.getElementById('tg-inbox-list');
+    if(!box) return;
+    if(!_fbOk||!_fbDB){ box.innerHTML='<div class="empty" style="padding:20px">Sem conexão com o Firebase agora.</div>'; return; }
+    let vinculos={}, grupoId=null, msgs={}, lastSeen={};
+    try{
+      const [sV,sG,sM,sL]=await Promise.all([
+        _fbDB.ref(FB_NODE+'/telegramVinculos').once('value'),
+        _fbDB.ref(FB_NODE+'/telegramGrupoId').once('value'),
+        _fbDB.ref(FB_NODE+'/telegramMensagens').once('value'),
+        _fbDB.ref(FB_NODE+'/telegramLastSeen').once('value'),
+      ]);
+      vinculos=sV.val()||{}; grupoId=sG.val()||null; msgs=sM.val()||{}; lastSeen=sL.val()||{};
+    }catch(e){
+      if(document.getElementById('tg-inbox-list')!==box) return;
+      box.innerHTML=`<div class="empty" style="padding:20px">⚠️ Falha ao carregar: ${escHtml(e.message)}</div>`;
+      return;
+    }
+    if(document.getElementById('tg-inbox-list')!==box) return; // trocou de tela nesse meio-tempo
+
+    const ef=DB.get('efetivo')||[];
+    const naoLidas=this._contarNaoLidasPorThread(msgs,lastSeen);
+
+    const conversas=[];
+    if(grupoId){
+      const gm=Object.values(msgs.GRUPO||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
+      conversas.push({thread:'GRUPO', nome:'Grupo da Seção', ultima:gm[0]||null, naoLidas:naoLidas.GRUPO||0, isGrupo:true});
+    }
+    Object.keys(vinculos).forEach(rg=>{
+      const m=ef.find(x=>x.rg===rg);
+      const nome = m?`${m.posto} ${m.nome}`:(vinculos[rg].nome||('RG '+rg));
+      const tm=Object.values(msgs[rg]||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
+      conversas.push({thread:rg, nome, ultima:tm[0]||null, naoLidas:naoLidas[rg]||0, isGrupo:false, member:m||{rg,nome:vinculos[rg].nome||'',posto:''}});
+    });
+    conversas.sort((a,b)=>((b.ultima&&b.ultima.ts)||0)-((a.ultima&&a.ultima.ts)||0));
+
+    const pendentes=ef.filter(m=>!vinculos[m.rg]);
+
+    if(conversas.length===0 && pendentes.length===0){ box.innerHTML='<div class="empty" style="padding:20px">Nenhum militar cadastrado.</div>'; return; }
+
+    let html='';
+    if(conversas.length){
+      html+=conversas.map((c,i)=>{
+        window['_tgInboxCache_'+i]=c.isGrupo?'GRUPO':c.member;
+        const preview = c.ultima ? `${c.ultima.direcao==='out'?'Você: ':''}${escHtml((c.ultima.texto||'').slice(0,70))}` : 'Sem mensagens ainda';
+        const hora = c.ultima ? (()=>{try{return new Date(c.ultima.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return '';}})() : '';
+        return `<div class="tok-card" style="cursor:pointer;border-bottom:1px solid var(--border);border-left:3px solid ${c.naoLidas>0?'#c0392b':'transparent'}" onclick="Render._abrirConversaTelegram(window['_tgInboxCache_${i}']${c.isGrupo?",'Grupo da Seção'":''})">
+          <div style="min-width:0;flex:1">
+            <div class="tok-rg">${c.isGrupo?'👥 ':''}${escHtml(c.nome)}</div>
+            <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;max-width:280px">${preview}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:10px;color:var(--muted)">${hora}</div>
+            ${c.naoLidas>0?`<span style="display:inline-block;margin-top:4px;background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800">${c.naoLidas>99?'99+':c.naoLidas}</span>`:''}
+          </div>
+        </div>`;
+      }).join('');
+    }
+    if(pendentes.length){
+      html+=`<div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.6px">AINDA NÃO VINCULARAM (${pendentes.length})</div>`;
+      html+=pendentes.map((m,i)=>{
+        window['_tgInboxPend_'+i]=m;
+        return `<div class="tok-card" style="border-bottom:1px solid var(--border)">
+          <div style="min-width:0;flex:1"><div class="tok-rg">${escHtml(m.posto)} ${escHtml(m.nome)}</div></div>
+          <button class="btn btn-primary btn-sm" onclick="Render._gerarLinkTelegram(window['_tgInboxPend_${i}'])">🔗 Gerar link</button>
+        </div>`;
+      }).join('');
+    }
+    box.innerHTML=html;
   },
 
   async _gerarLinkTelegram(m){
@@ -6802,6 +6893,7 @@ ${legendaHtml}
         _fbDB.ref(FB_NODE+'/telegramLastSeen/'+thread).set(Date.now()).then(()=>{
           this._atualizarBadgeTelegram();
           if(document.getElementById('adm-tg-lista')) this._carregarStatusTelegram();
+          if(document.getElementById('tg-inbox-list')) this._carregarInboxTelegram();
         }).catch(()=>{});
       }
     });
