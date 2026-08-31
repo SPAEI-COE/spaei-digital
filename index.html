@@ -1177,7 +1177,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.73';
+const APP_VERSAO = '6.74';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -3136,7 +3136,7 @@ const Escala={
         hour:'2-digit',minute:'2-digit'}),
       desbloqueado:false,
     };
-    DB.set('envios',envios);
+    DB.transacaoPorRG('envios',rg,(atual)=>({...(atual||{}),[key]:envios[rg][key]}),envios,`Envio de programação — RG ${rg}, semana ${key}`);
     _logAdd('ENVIO', `Programação enviada: ${Auth.user.posto} ${Auth.user.nome} (RG ${rg}) — Semana ${key}`, envios[rg][key].enviadoEm);
   },
 
@@ -3158,7 +3158,9 @@ const Escala={
     envios[chaveReal][key].desbloqueado=true;
     envios[chaveReal][key].desbloqueadoEm=new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',
       hour:'2-digit',minute:'2-digit'});
-    DB.set('envios',envios);
+    // usa chaveReal (achado por _achaRG, tolerante a formatação), NUNCA rg
+    // cru — senão grava num path diferente de onde o dado realmente mora
+    DB.transacaoPorRG('envios',chaveReal,(atual)=>({...(atual||{}),[key]:envios[chaveReal][key]}),envios,`Desbloqueio — RG ${rg}, semana ${key}`);
     const u=Auth.user;
     _logAdd('DESBLOQUEIO', `Escala desbloqueada pelo ADM ${u.nome.split(' ')[0]} para RG ${rg} — Semana ${key}`, envios[chaveReal][key].desbloqueadoEm);
     return true;
@@ -3262,6 +3264,7 @@ const Afast={
   set(rg,obj){
     const t=this.all();
     const atual=t[rg];
+    let novoHist=null;
     if(atual && atual.tipo===obj.tipo && atual.dataIni===obj.dataIni){
       t[rg]={...atual,...obj};
     } else {
@@ -3269,22 +3272,32 @@ const Afast={
         const h=this.histAll();
         h[rg]=h[rg]||[];
         h[rg].unshift({...atual,arquivadoEm:new Date().toLocaleDateString('pt-BR')});
-        DB.set('afastHist',h);
+        novoHist=h[rg];
+        DB.transacaoPorRG('afastHist',rg,(atualServ)=>{
+          const arr=Array.isArray(atualServ)?atualServ.slice():[];
+          arr.unshift({...atual,arquivadoEm:new Date().toLocaleDateString('pt-BR')});
+          return arr;
+        },h,'Arquivamento de afastamento — RG '+rg);
       }
       t[rg]=obj;
     }
-    DB.set('afastamentos',t);
+    DB.transacaoPorRG('afastamentos',rg,()=>obj,t,'Afastamento — RG '+rg);
   },
 
   clear(rg){
     const t=this.all();
     if(t[rg]){
+      const atualAntes=t[rg];
       const h=this.histAll();
       h[rg]=h[rg]||[];
       h[rg].unshift({...t[rg],arquivadoEm:new Date().toLocaleDateString('pt-BR')});
-      DB.set('afastHist',h);
+      DB.transacaoPorRG('afastHist',rg,(atualServ)=>{
+        const arr=Array.isArray(atualServ)?atualServ.slice():[];
+        arr.unshift({...atualAntes,arquivadoEm:new Date().toLocaleDateString('pt-BR')});
+        return arr;
+      },h,'Arquivamento de afastamento — RG '+rg);
       delete t[rg];
-      DB.set('afastamentos',t);
+      DB.transacaoPorRG('afastamentos',rg,()=>null,t,'Encerramento de afastamento — RG '+rg);
     }
   },
 };
@@ -3391,7 +3404,7 @@ function _registrarIsencaoAdm(rg,weekKey){
   const t=DB.get('isencoesAdm')||{};
   t[rg]=t[rg]||{};
   t[rg][weekKey]=true;
-  DB.set('isencoesAdm',t);
+  DB.transacaoPorRG('isencoesAdm',rg,(atual)=>({...(atual||{}),[weekKey]:true}),t,`Isenção ADM — RG ${rg}, semana ${weekKey}`);
 }
 function isentoPorAdm(rg,weekKey){
   const t=DB.get('isencoesAdm')||{};
@@ -3481,22 +3494,21 @@ const FOTO_L=600, FOTO_A=800, FOTO_QUALIDADE=.70, FOTO_MAX_UPLOAD=8*1024*1024;
 const Fotos={
   get(rg){ return (DB.get('fotos')||{})[normRG(rg)]||null; },
   // Mesmo padrão de gravação de TODO o resto do app (efetivo, processos, logs):
-  // DB.set atualiza o estado local NA HORA (repaint imediato garantido) e
-  // deixa a gravação de rede seguir em fila com auto-retry/pendência visível
-  // já testados (rito). setAguardando (bloqueia até confirmar ou rejeita) fica
-  // reservado a operações onde a tela não pode seguir sem garantia (ex. senha) —
-  // não é o caso de uma foto, que pode sincronizar em segundo plano.
+  // DB atualiza o estado local NA HORA (repaint imediato garantido) e deixa a
+  // gravação de rede seguir em fila com auto-retry/pendência visível já
+  // testados (rito) — agora via transação atômica por RG (não sobrescreve a
+  // foto de OUTRO militar salva por outra sessão ao mesmo tempo).
   salvar(rg,dataURL){
     const k=normRG(rg);
     const atual={...(DB.get('fotos')||{})};
     atual[k]=dataURL;
-    DB.set('fotos',atual,'Foto 3x4 do RG '+k);
+    DB.transacaoPorRG('fotos',k,()=>dataURL,atual,'Foto 3x4 do RG '+k);
   },
   remover(rg){
     const k=normRG(rg);
     const atual={...(DB.get('fotos')||{})};
     delete atual[k];
-    DB.set('fotos',atual,'Remoção de foto do RG '+k);
+    DB.transacaoPorRG('fotos',k,()=>null,atual,'Remoção de foto do RG '+k);
   },
 };
 // Lê um File de <input type=file>, valida, recorta (crop central) e
@@ -3716,7 +3728,7 @@ const Auth={
         if(hSenhaPura===RESGATE_HASH){
           // Resgate mesmo com senha pessoal já criada — evita bloqueio total caso o ADM a esqueça
           delete admSenhas[rg];
-          DB.set('admSenhas',admSenhas);
+          DB.transacaoPorRG('admSenhas',rg,()=>null,admSenhas,`Resgate de acesso — RG ${rg}`);
           const logsR=DB.get('logs')||[];
           const entryResgate={dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
             tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg}) — senha pessoal revogada, volta a valer o Token de Acesso (COE2026)`};
@@ -6588,14 +6600,14 @@ ${legendaHtml}
     // Excluir senha pessoal de ADM
     const admSenhas=DB.get('admSenhas')||{};
     delete admSenhas[m.rg];
-    DB.set('admSenhas',admSenhas);
+    DB.transacaoPorRG('admSenhas',m.rg,()=>null,admSenhas,`Exclusão de senha pessoal — RG ${m.rg}`);
     // Excluir PIN (membros)
     const pins=DB.get('pins')||{};
     delete pins[m.rg];
-    DB.set('pins',pins);
+    DB.transacaoPorRG('pins',m.rg,()=>null,pins,`Exclusão de PIN — RG ${m.rg}`);
     // Excluir foto 3x4
     const fotosAtual={...(DB.get('fotos')||{})};
-    if(fotosAtual[normRG(m.rg)]){ delete fotosAtual[normRG(m.rg)]; DB.set('fotos',fotosAtual); }
+    if(fotosAtual[normRG(m.rg)]){ delete fotosAtual[normRG(m.rg)]; Fotos.remover(m.rg); }
     // Log
     _logAdd('EXCLUSÃO', `Membro removido: ${m.posto} ${m.nome} (RG ${m.rg}) — por ${Auth.user?.nome||'?'}`);
     Render.admin();
@@ -6609,7 +6621,7 @@ ${legendaHtml}
     if(!confirm(`Apagar a senha pessoal de ${primeiroNome} (RG ${rg})?\n\nEle voltará a entrar com RG + Token de Acesso (COE2026) e vai criar uma senha pessoal nova.`))return;
     const admSenhas=DB.get('admSenhas')||{};
     delete admSenhas[rg];
-    DB.set('admSenhas',admSenhas);
+    DB.transacaoPorRG('admSenhas',rg,()=>null,admSenhas,`Reset de senha pessoal — RG ${rg}`);
     _logAdd('ADM_SENHA', `Senha pessoal resetada pelo ADM ${Auth.user?.nome||'?'} — RG ${rg} (${primeiroNome}) — volta a valer o Token de Acesso (COE2026)`);
     Render.admin();
     Toast.warning(`Senha pessoal resetada: ${primeiroNome}. Próximo acesso será com Token COE2026.`);
@@ -6631,7 +6643,7 @@ ${legendaHtml}
     const isencoes=DB.get('isencoesAdm')||{};
     if(isencoes[rg]&&isencoes[rg][weekKey]){
       delete isencoes[rg][weekKey];
-      DB.set('isencoesAdm',isencoes);
+      DB.transacaoPorRG('isencoesAdm',rg,(atual)=>{ const o={...(atual||{})}; delete o[weekKey]; return o; },isencoes,`Liberação de bloqueio — RG ${rg}, semana ${weekKey}`);
       mexeu=true;
     }
     return mexeu;
@@ -6714,7 +6726,7 @@ ${legendaHtml}
     if(!confirm(`Resetar a senha de ${m?.posto||''} ${m?.nome||rg}?\n\nO militar precisará criar uma nova senha no próximo acesso.`))return;
     const pins=DB.get('pins')||{};
     delete pins[rg];
-    DB.set('pins',pins);
+    DB.transacaoPorRG('pins',rg,()=>null,pins,`Reset de PIN — RG ${rg}`);
     _logAdd('PIN', `Senha resetada pelo ADM ${Auth.user?.nome||'?'} — RG ${rg} (${primeiroNome})`);
     Render.admin();
     // Toast
