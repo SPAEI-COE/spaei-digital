@@ -1176,7 +1176,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.66';
+const APP_VERSAO = '6.67';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -5903,10 +5903,11 @@ ${legendaHtml}
       </div>
       <div class="tabs">
         ${[['efetivo','👥 Efetivo'],['telegram','📱 Telegram'],['tokens','🔑 Tokens'],['logs','📋 Logs'],['backup','💾 Backup'],['config','⚙️ Config']].map(([id,lbl])=>
-          `<button class="tab-btn${tab===id?' on':''}" onclick="DB.set('adm_tab','${id}');Render.admin()">${lbl}</button>`).join('')}
+          `<button class="tab-btn${tab===id?' on':''}" id="${id==='telegram'?'admtab-telegram':''}" onclick="DB.set('adm_tab','${id}');Render.admin()">${lbl}<span id="${id==='telegram'?'admtab-telegram-badge':''}"></span></button>`).join('')}
       </div>
       <div id="adm-content"></div>`;
     this._admTab(tab);
+    this._atualizarBadgeTelegram();
   },
 
   _admTab(tab){
@@ -6673,14 +6674,17 @@ ${legendaHtml}
       box.innerHTML=`<div class="empty" style="padding:16px">Sem conexão com o Firebase agora — status indisponível.</div>`;
       return;
     }
-    let vinculos={}, grupoId=null;
+    let vinculos={}, grupoId=null, naoLidas={};
     try{
-      const [sV,sG]=await Promise.all([
+      const [sV,sG,sM,sL]=await Promise.all([
         _fbDB.ref(FB_NODE+'/telegramVinculos').once('value'),
         _fbDB.ref(FB_NODE+'/telegramGrupoId').once('value'),
+        _fbDB.ref(FB_NODE+'/telegramMensagens').once('value'),
+        _fbDB.ref(FB_NODE+'/telegramLastSeen').once('value'),
       ]);
       vinculos=sV.val()||{};
       grupoId=sG.val()||null;
+      naoLidas=this._contarNaoLidasPorThread(sM.val()||{},sL.val()||{});
     }catch(e){
       if(document.getElementById('adm-tg-lista')!==box) return;
       box.innerHTML=`<div class="empty" style="padding:16px">⚠️ Falha ao carregar: ${escHtml(e.message)}</div>`;
@@ -6688,11 +6692,13 @@ ${legendaHtml}
     }
     if(document.getElementById('adm-tg-lista')!==box) return; // trocou de aba nesse meio-tempo
 
+    const badgeHtml=n=>n>0?` <span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800">${n>99?'99+':n}</span>`:'';
+
     if(grupoBox){
       grupoBox.innerHTML = grupoId
         ? `<div style="padding:10px 14px;border-radius:10px;background:rgba(31,157,85,.1);border:1px solid rgba(31,157,85,.35);font-size:12px;font-weight:700;color:#1f9d55;display:flex;justify-content:space-between;align-items:center;gap:8px">
              <span>✅ Grupo da seção vinculado — avisos publicados chegam lá automaticamente.</span>
-             <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="Render._abrirConversaTelegram('GRUPO','Grupo da Seção')">💬 Conversa</button>
+             <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="Render._abrirConversaTelegram('GRUPO','Grupo da Seção')">💬 Conversa${badgeHtml(naoLidas.GRUPO)}</button>
            </div>`
         : `<div style="padding:10px 14px;border-radius:10px;background:var(--vmcl);border:1px solid rgba(192,57,43,.35);font-size:12px;font-weight:700;color:var(--vm)">⚠️ Grupo ainda não vinculado — adicione @${TELEGRAM_BOT_USERNAME} ao grupo da seção no Telegram e mande qualquer mensagem lá (é automático, sem comando nenhum).</div>`;
     }
@@ -6709,13 +6715,40 @@ ${legendaHtml}
       return `<div class="tok-card" style="border-radius:0;border-left:3px solid ${v?'#13703e':'var(--border)'};${i<ef.length-1?'border-bottom:1px solid var(--border)':''}">
         <div style="min-width:0;flex:1">
           <div class="tok-rg">${escHtml(m.posto)} ${escHtml(m.nome)}</div>
-          ${statusHTML}
-        </div>
+          ${statusHTML}</div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          ${v?`<button class="btn btn-primary btn-sm" onclick="Render._abrirConversaTelegram(window['_efTgCache_${i}'])">💬 Conversa</button>`:`<button class="btn btn-primary btn-sm" onclick="Render._gerarLinkTelegram(window['_efTgCache_${i}'])">🔗 Gerar link</button>`}
+          ${v?`<button class="btn btn-primary btn-sm" onclick="Render._abrirConversaTelegram(window['_efTgCache_${i}'])">💬 Conversa${badgeHtml(naoLidas[m.rg])}</button>`:`<button class="btn btn-primary btn-sm" onclick="Render._gerarLinkTelegram(window['_efTgCache_${i}'])">🔗 Gerar link</button>`}
         </div>
       </div>`;
     }).join('');
+  },
+
+  // Conta mensagens 'in' com ts após o último "visto" de cada thread — puro,
+  // sem I/O, reaproveitado tanto na lista da aba quanto no badge da aba em si.
+  _contarNaoLidasPorThread(msgs,lastSeen){
+    const porThread={};
+    Object.keys(msgs||{}).forEach(thread=>{
+      const ls=(lastSeen||{})[thread]||0;
+      const n=Object.values(msgs[thread]||{}).filter(m=>m&&m.direcao==='in'&&(m.ts||0)>ls).length;
+      if(n>0) porThread[thread]=n;
+    });
+    return porThread;
+  },
+
+  async _atualizarBadgeTelegram(){
+    const el=document.getElementById('admtab-telegram-badge');
+    if(!el||!_fbOk||!_fbDB) return;
+    try{
+      const [sM,sL]=await Promise.all([
+        _fbDB.ref(FB_NODE+'/telegramMensagens').once('value'),
+        _fbDB.ref(FB_NODE+'/telegramLastSeen').once('value'),
+      ]);
+      const porThread=this._contarNaoLidasPorThread(sM.val()||{},sL.val()||{});
+      const total=Object.values(porThread).reduce((a,b)=>a+b,0);
+      const el2=document.getElementById('admtab-telegram-badge');
+      if(!el2) return;
+      el2.innerHTML = total>0?` <span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:2px">${total>99?'99+':total}</span>`:'';
+    }catch(e){ /* silencioso — badge é auxiliar, nunca deve travar o painel */ }
   },
 
   async _gerarLinkTelegram(m){
@@ -6765,6 +6798,12 @@ ${legendaHtml}
     `, ()=>{
       if(_fbOk&&_fbDB&&this._tgChatListenerRef){ this._tgChatListenerRef.off('value',this._tgChatListenerCb); }
       this._tgChatListenerRef=null; this._tgChatListenerCb=null; this._tgChatThread=null;
+      if(_fbOk&&_fbDB){
+        _fbDB.ref(FB_NODE+'/telegramLastSeen/'+thread).set(Date.now()).then(()=>{
+          this._atualizarBadgeTelegram();
+          if(document.getElementById('adm-tg-lista')) this._carregarStatusTelegram();
+        }).catch(()=>{});
+      }
     });
 
     const box=document.getElementById('tg-chat-msgs');
