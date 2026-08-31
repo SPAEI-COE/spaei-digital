@@ -1177,7 +1177,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.69';
+const APP_VERSAO = '6.70';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -6803,7 +6803,8 @@ ${legendaHtml}
     if(conversas.length){
       html+=conversas.map((c,i)=>{
         window['_tgInboxCache_'+i]=c.isGrupo?'GRUPO':c.member;
-        const preview = c.ultima ? `${c.ultima.direcao==='out'?'Você: ':''}${escHtml((c.ultima.texto||'').slice(0,70))}` : 'Sem mensagens ainda';
+        const previewTexto = c.ultima ? (c.ultima.texto || (c.ultima.tipo==='foto'?'📷 Foto':c.ultima.tipo==='documento'?`📄 ${c.ultima.nomeArquivo||'Documento'}`:'')) : '';
+        const preview = c.ultima ? `${c.ultima.direcao==='out'?'Você: ':''}${escHtml(previewTexto.slice(0,70))}` : 'Sem mensagens ainda';
         const hora = c.ultima ? (()=>{try{return new Date(c.ultima.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return '';}})() : '';
         return `<div class="tok-card" style="cursor:pointer;border-bottom:1px solid var(--border);border-left:3px solid ${c.naoLidas>0?'#c0392b':'transparent'}" onclick="Render._abrirConversaTelegram(window['_tgInboxCache_${i}']${c.isGrupo?",'Grupo da Seção'":''})">
           <div style="min-width:0;flex:1">
@@ -6862,21 +6863,35 @@ ${legendaHtml}
   _abrirConversaTelegram(memberOuThread,tituloSeGrupo){
     const isGrupo = memberOuThread==='GRUPO';
     const thread = isGrupo?'GRUPO':memberOuThread.rg;
-    const titulo = isGrupo?(tituloSeGrupo||'Grupo da Seção'):`${memberOuThread.posto} ${memberOuThread.nome}`;
+    const nome = isGrupo?(tituloSeGrupo||'Grupo da Seção'):memberOuThread.nome;
+    const posto = isGrupo?'':(memberOuThread.posto||'');
     this._tgChatThread = thread;
+    this._tgAnexoPendente = null;
 
-    Modal.open(`💬 ${titulo}`,`
-      <div id="tg-chat-msgs" style="height:min(50vh,420px);overflow-y:auto;padding:6px 2px;display:flex;flex-direction:column;background:var(--bg);border-radius:10px;margin-bottom:10px">
+    Modal.open('💬 Conversa',`
+      <div style="display:flex;align-items:center;gap:10px;padding:2px 2px 12px;border-bottom:1px solid var(--border);margin-bottom:10px">
+        ${this._tgAvatarHtml(thread,nome,isGrupo,40)}
+        <div style="min-width:0;flex:1">
+          <div style="font-size:14px;font-weight:800;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(posto?posto+' ':'')}${escHtml(nome)}</div>
+          ${posto?`<div style="font-size:11px;color:var(--muted)">Militar do efetivo</div>`:isGrupo?`<div style="font-size:11px;color:var(--muted)">Canal em grupo da seção</div>`:''}
+        </div>
+      </div>
+      <div id="tg-chat-msgs" style="height:min(48vh,400px);overflow-y:auto;padding:6px 2px;display:flex;flex-direction:column;background:var(--bg);border-radius:10px;margin-bottom:8px">
         <div class="empty" style="padding:20px">Carregando conversa…</div>
       </div>
-      <div style="display:flex;gap:8px">
-        <input class="form-inp" id="tg-chat-inp" placeholder="Escrever mensagem..." style="flex:1"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();Render._enviarMsgTelegram()}">
-        <button class="btn btn-primary" id="tg-chat-send-btn" onclick="Render._enviarMsgTelegram()">Enviar</button>
+      <div id="tg-anexo-preview" style="display:none;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <input type="file" id="tg-chat-anexo-input" style="display:none" accept="image/*,.pdf,.doc,.docx,.zip,.xls,.xlsx" onchange="Render._selecionarAnexoChat(this)">
+        <button class="btn btn-ghost" title="Anexar foto ou documento" style="flex-shrink:0;padding:0 12px" onclick="document.getElementById('tg-chat-anexo-input').click()">📎</button>
+        <textarea id="tg-chat-inp" placeholder="Escrever mensagem..." rows="1"
+          style="flex:1;resize:none;overflow-y:auto;max-height:110px;padding:9px 12px;border-radius:14px;border:1px solid var(--border);background:var(--inp);color:inherit;font:inherit;line-height:1.35"
+          oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,110)+'px'"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();Render._enviarMsgTelegram()}"></textarea>
+        <button class="btn btn-primary" id="tg-chat-send-btn" style="flex-shrink:0" onclick="Render._enviarMsgTelegram()">Enviar</button>
       </div>
     `, ()=>{
       if(_fbOk&&_fbDB&&this._tgChatListenerRef){ this._tgChatListenerRef.off('value',this._tgChatListenerCb); }
-      this._tgChatListenerRef=null; this._tgChatListenerCb=null; this._tgChatThread=null;
+      this._tgChatListenerRef=null; this._tgChatListenerCb=null; this._tgChatThread=null; this._tgAnexoPendente=null;
       if(_fbOk&&_fbDB){
         // grava o "visto" — o listener ao vivo de telegramLastSeen já cuida
         // sozinho de atualizar badge/lista/aba na hora, sem chamada manual
@@ -6898,39 +6913,127 @@ ${legendaHtml}
         box2.innerHTML='<div class="empty" style="padding:20px">Nenhuma mensagem ainda. Assim que houver troca real com o Telegram, aparece aqui.</div>';
         return;
       }
-      box2.innerHTML=msgs.map(m=>this._tgBubble(m)).join('');
+      box2.innerHTML=msgs.map(m=>this._tgBubble(m,thread,nome,isGrupo)).join('');
       if(pertoDoFim) box2.scrollTop=box2.scrollHeight;
     };
     ref.on('value',cb);
     this._tgChatListenerRef=ref; this._tgChatListenerCb=cb;
   },
 
-  _tgBubble(m){
+  // Avatar circular — foto 3x4 real (mesmo banco usado no cadastro de
+  // efetivo) quando existe; senão iniciais coloridas; grupo usa ícone fixo.
+  _tgAvatarHtml(thread,nome,isGrupo,tam){
+    const t=tam||30;
+    if(isGrupo) return `<div style="width:${t}px;height:${t}px;border-radius:50%;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:${Math.round(t*0.5)}px;flex-shrink:0">👥</div>`;
+    const foto=(typeof Fotos!=='undefined'&&Fotos.get)?Fotos.get(thread):null;
+    if(foto) return `<img src="${foto}" style="width:${t}px;height:${t}px;border-radius:50%;object-fit:cover;flex-shrink:0">`;
+    const iniciais=(nome||'').trim().split(/\s+/).filter(Boolean).slice(-2).map(p=>p[0]).join('').toUpperCase()||'?';
+    let h=0; for(let i=0;i<(nome||thread||'').length;i++) h=(h*31+(nome||thread).charCodeAt(i))>>>0;
+    const cor=`hsl(${h%360},55%,42%)`;
+    return `<div style="width:${t}px;height:${t}px;border-radius:50%;background:${cor};display:flex;align-items:center;justify-content:center;font-size:${Math.round(t*0.4)}px;font-weight:800;color:#fff;flex-shrink:0">${escHtml(iniciais)}</div>`;
+  },
+
+  _tgBubble(m,thread,nomeConversa,isGrupo){
     const isOut=m.direcao==='out';
     const hora=(()=>{try{return new Date(m.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}catch(e){return '';}})();
     const rotulo=m.tipo==='processo'?'📋 Processo atribuído':m.tipo==='aviso'?'🔔 Aviso da seção':m.tipo==='sistema'?'⚙️ Sistema':'';
-    return `<div style="display:flex;justify-content:${isOut?'flex-end':'flex-start'};margin:3px 6px">
-      <div style="max-width:78%;padding:7px 11px;border-radius:14px;${isOut?'background:#2b5278;border-bottom-right-radius:3px':'background:var(--card2);border-bottom-left-radius:3px'};font-size:13px;line-height:1.4;color:#fff;white-space:pre-wrap;word-break:break-word">
+    let midiaHtml='';
+    if(m.tipo==='foto'&&m.fotoDataUrl){
+      midiaHtml=`<img src="${m.fotoDataUrl}" style="max-width:100%;border-radius:12px;display:block;margin-bottom:${m.texto?'6px':'0'}">`;
+    } else if(m.tipo==='documento'&&m.arquivoDataUrl){
+      midiaHtml=`<a href="${m.arquivoDataUrl}" download="${escHtml(m.nomeArquivo||'arquivo')}" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.08);text-decoration:none;color:inherit;margin-bottom:${m.texto?'6px':'0'}">
+        <span style="font-size:20px">📄</span>
+        <span style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.nomeArquivo||'arquivo')}</span>
+      </a>`;
+    }
+    const avatar = !isOut ? this._tgAvatarHtml(thread,nomeConversa,isGrupo,26) : '';
+    return `<div style="display:flex;justify-content:${isOut?'flex-end':'flex-start'};align-items:flex-end;gap:6px;margin:3px 6px">
+      ${avatar}
+      <div style="max-width:74%;padding:7px 11px;border-radius:14px;${isOut?'background:#2b5278;border-bottom-right-radius:3px':'background:var(--card2);border-bottom-left-radius:3px'};font-size:13px;line-height:1.4;color:#fff;white-space:pre-wrap;word-break:break-word">
         ${rotulo?`<div style="font-size:10px;font-weight:700;opacity:.75;margin-bottom:2px">${rotulo}</div>`:''}
-        ${escHtml(m.texto||'')}
+        ${midiaHtml}
+        ${m.texto?escHtml(m.texto):''}
         <div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${hora}</div>
       </div>
     </div>`;
   },
 
+  // Lê o arquivo do anexo (foto ou documento) como dataURL — sem cortar/
+  // redimensionar como o crop 3x4 do cadastro (aqui é anexo livre, mantém
+  // proporção original); só reduz se for imagem MUITO grande, pra não
+  // pesar o histórico no Firebase.
+  _lerAnexoChat(file){
+    const TG_ANEXO_MAX=15*1024*1024;
+    return new Promise((resolve,reject)=>{
+      if(!file) return reject(new Error('Nenhum arquivo selecionado.'));
+      if(file.size>TG_ANEXO_MAX) return reject(new Error('Arquivo muito grande (máx. 15MB).'));
+      const ehImagem=/^image\//.test(file.type);
+      const rd=new FileReader();
+      rd.onerror=()=>reject(new Error('Falha ao ler o arquivo.'));
+      if(!ehImagem){
+        rd.onload=()=>resolve({tipo:'documento',dataUrl:rd.result,nomeArquivo:file.name});
+        rd.readAsDataURL(file);
+        return;
+      }
+      rd.onload=()=>{
+        const img=new Image();
+        img.onerror=()=>reject(new Error('Arquivo não é uma imagem válida.'));
+        img.onload=()=>{
+          const MAX=1600;
+          let w=img.naturalWidth, h=img.naturalHeight;
+          if(w<=MAX&&h<=MAX){ resolve({tipo:'foto',dataUrl:rd.result,nomeArquivo:file.name}); return; }
+          const esc=Math.min(MAX/w,MAX/h);
+          w=Math.round(w*esc); h=Math.round(h*esc);
+          const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+          cv.getContext('2d').drawImage(img,0,0,w,h);
+          resolve({tipo:'foto',dataUrl:cv.toDataURL('image/jpeg',.82),nomeArquivo:file.name});
+        };
+        img.src=rd.result;
+      };
+      rd.readAsDataURL(file);
+    });
+  },
+
+  async _selecionarAnexoChat(inputEl){
+    const file=inputEl.files&&inputEl.files[0];
+    inputEl.value='';
+    if(!file) return;
+    try{
+      const anexo=await this._lerAnexoChat(file);
+      this._tgAnexoPendente=anexo;
+      const prev=document.getElementById('tg-anexo-preview');
+      if(!prev) return;
+      prev.style.display='block';
+      prev.innerHTML = anexo.tipo==='foto'
+        ? `<div style="position:relative;display:inline-block"><img src="${anexo.dataUrl}" style="max-height:90px;border-radius:10px;display:block"><button onclick="Render._removerAnexoChatPendente()" style="position:absolute;top:-6px;right:-6px;background:#c0392b;color:#fff;border:none;border-radius:50%;width:22px;height:22px;font-size:12px;cursor:pointer">✕</button></div>`
+        : `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;background:var(--card2);width:fit-content"><span>📄</span><span style="font-size:12px;font-weight:700">${escHtml(anexo.nomeArquivo)}</span><button onclick="Render._removerAnexoChatPendente()" style="background:#c0392b;color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:11px;cursor:pointer;flex-shrink:0">✕</button></div>`;
+    }catch(e){ Toast.error(e.message||'Falha ao ler o arquivo.'); }
+  },
+
+  _removerAnexoChatPendente(){
+    this._tgAnexoPendente=null;
+    const prev=document.getElementById('tg-anexo-preview');
+    if(prev){ prev.style.display='none'; prev.innerHTML=''; }
+  },
+
   async _enviarMsgTelegram(){
     const thread=this._tgChatThread; if(!thread)return;
     const inp=document.getElementById('tg-chat-inp'); const btn=document.getElementById('tg-chat-send-btn');
-    const texto=(inp.value||'').trim(); if(!texto)return;
+    const texto=(inp.value||'').trim();
+    const anexo=this._tgAnexoPendente;
+    if(!texto&&!anexo)return;
     btn.disabled=true; btn.textContent='Enviando…';
     try{
+      const payload = thread==='GRUPO'?{grupo:true,texto}:{rg:thread,texto};
+      if(anexo&&anexo.tipo==='foto') payload.fotoDataUrl=anexo.dataUrl;
+      else if(anexo&&anexo.tipo==='documento'){ payload.arquivoDataUrl=anexo.dataUrl; payload.nomeArquivo=anexo.nomeArquivo; }
       const resp=await fetch(`${TELEGRAM_API_BASE}/api/enviar-mensagem`,{
         method:'POST',
         headers:{'Content-Type':'application/json','x-spaei-key':TELEGRAM_API_KEY},
-        body:JSON.stringify(thread==='GRUPO'?{grupo:true,texto}:{rg:thread,texto}),
+        body:JSON.stringify(payload),
       });
       const data=await resp.json().catch(()=>null);
-      if(data&&data.enviado){ inp.value=''; }
+      if(data&&data.enviado){ inp.value=''; inp.style.height='auto'; this._removerAnexoChatPendente(); }
       else if(data&&data.motivo==='sem_vinculo'){ Toast.warning('Esse militar ainda não vinculou o Telegram.'); }
       else if(data&&data.motivo==='grupo_nao_vinculado'){ Toast.warning('Grupo ainda não vinculado.'); }
       else { Toast.error('Não foi possível enviar. Tente de novo.'); }
