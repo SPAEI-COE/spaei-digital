@@ -1177,7 +1177,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.70';
+const APP_VERSAO = '6.71';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -5029,6 +5029,9 @@ const Render={
       Render.folgas();
       const labelS=`${DIAS[0].dt}–${DIAS[6].dt}`;
       Toast.success(`Programação enviada! Semana ${labelS}`,5000);
+      // Telegram: log de auditoria centralizado no grupo da seção — mesmo
+      // padrão fire-and-forget de processo/aviso, nunca bloqueia o envio real
+      _telegramNotificar('enviar-mensagem', {grupo:true, texto:`📅 Programação de folga/dispensa enviada\n${user.posto} ${user.nome}\nSemana ${labelProx}\n${resumo}`});
     } finally {
       Render._envioEmCurso=false;
     }
