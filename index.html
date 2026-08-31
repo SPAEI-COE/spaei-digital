@@ -1177,7 +1177,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.72';
+const APP_VERSAO = '6.73';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1613,6 +1613,83 @@ const DB={
       }
       if(!committed){ fallbackBlob(); return; } // não deveria ocorrer (updateFunction sempre retorna valor), defensivo
       _pendLimpar('escalaSemanas');
+    });
+  },
+
+  // ── PROTEÇÃO DE CONCORRÊNCIA — mesmo padrão validado em setCelulaEscala,
+  // generalizado pra 3 formatos de dado que o app usa. Nenhuma dessas troca
+  // o caminho normal (DB.set): sempre atualiza local OTIMISTA primeiro, cai
+  // pro fallbackBlob (DB.set de sempre) se offline/sem sync/relógio
+  // implausível ou se a própria transação falhar por qualquer motivo — as
+  // garantias já testadas (fila de pendência, retry, banner) continuam
+  // intactas como rede de segurança, nunca removidas.
+
+  // Array de objetos com .id (efetivo/processos/avisos): grava só o registro
+  // MEU dentro do array, sem tocar nos outros — 2 usuários mexendo em
+  // registros DIFERENTES do mesmo array, ao mesmo tempo, preservam os 2.
+  // mutadorFn(itemAtualOuNull) → novoItem (ou null pra excluir o registro).
+  transacaoArrayPorId(chave, id, mutadorFn, arrLocalNova, desc){
+    if(_tvBlock()) return;
+    _mem[chave]=arrLocalNova;
+    try{localStorage.setItem(LS_PFX+chave,JSON.stringify(arrLocalNova));}catch(e){}
+    const fallbackBlob=()=>DB.set(chave,arrLocalNova,desc);
+    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    _pendMarcar(chave,desc||chave);
+    const ref=_fbDB.ref(`${FB_NODE}/${chave}`);
+    ref.transaction(current=>{
+      const arr=Array.isArray(current)?current.slice():[];
+      const idx=arr.findIndex(x=>x&&x.id===id);
+      const novo=mutadorFn(idx>=0?arr[idx]:null);
+      if(novo===null){ if(idx>=0) arr.splice(idx,1); }
+      else if(idx>=0){ arr[idx]=novo; }
+      else { arr.push(novo); }
+      return arr;
+    },(error,committed)=>{
+      if(error){ console.warn(`Transação atômica de ${chave} falhou, caindo pro caminho testado:`,error); fallbackBlob(); return; }
+      if(!committed){ fallbackBlob(); return; }
+      _pendLimpar(chave);
+    });
+  },
+
+  // Objeto indexado por RG (pins/admSenhas/afastamentos/afastHist/isencoesAdm/
+  // envios/fotos): grava só a chave/RG minha — mesmo princípio de
+  // setCelulaEscala, 1 nível mais raso (sem sub-chave de semana).
+  // mutadorFn(valorAtualOuNull) → novoValor (ou null/undefined pra excluir).
+  transacaoPorRG(chave, rg, mutadorFn, objLocalNovo, desc){
+    if(_tvBlock()) return;
+    _mem[chave]=objLocalNovo;
+    try{localStorage.setItem(LS_PFX+chave,JSON.stringify(objLocalNovo));}catch(e){}
+    const fallbackBlob=()=>DB.set(chave,objLocalNovo,desc);
+    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    _pendMarcar(chave,desc||chave);
+    const ref=_fbDB.ref(`${FB_NODE}/${chave}/${normRG(rg)}`);
+    ref.transaction(current=>mutadorFn(current===undefined?null:current),(error,committed)=>{
+      if(error){ console.warn(`Transação atômica de ${chave}/${rg} falhou, caindo pro caminho testado:`,error); fallbackBlob(); return; }
+      if(!committed){ fallbackBlob(); return; }
+      _pendLimpar(chave);
+    });
+  },
+
+  // logs: sempre PREPEND (mais novo primeiro) + corta em 200 — não é "meu
+  // registro" por id, é "minha entrada nova" na frente de tudo que já existe
+  // no servidor nesse instante (2 admins logando ações diferentes ao mesmo
+  // tempo preservam as 2 entradas, nenhuma pisa na outra).
+  transacaoLogAppend(entry, arrLocalNova, desc){
+    if(_tvBlock()) return;
+    _mem['logs']=arrLocalNova;
+    try{localStorage.setItem(LS_PFX+'logs',JSON.stringify(arrLocalNova));}catch(e){}
+    const fallbackBlob=()=>DB.set('logs',arrLocalNova,desc);
+    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    _pendMarcar('logs',desc||'log');
+    const ref=_fbDB.ref(`${FB_NODE}/logs`);
+    ref.transaction(current=>{
+      const arr=Array.isArray(current)?current.slice():[];
+      arr.unshift(entry);
+      return arr.slice(0,200);
+    },(error,committed)=>{
+      if(error){ console.warn('Transação atômica de logs falhou, caindo pro caminho testado:',error); fallbackBlob(); return; }
+      if(!committed){ fallbackBlob(); return; }
+      _pendLimpar('logs');
     });
   },
 
@@ -3229,7 +3306,7 @@ const Afast={
 function _logAdd(tipo, desc, dtOverride){
   const logs=DB.get('logs')||[];
   const u=Auth&&Auth.user;
-  logs.unshift({
+  const entry={
     dt: dtOverride || new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
     tipo, desc,
     opId: uid(),
@@ -3237,8 +3314,9 @@ function _logAdd(tipo, desc, dtOverride){
     autorNome: u?u.nome:null,
     versao: APP_VERSAO,
     origem: (typeof _tvBlock==='function'&&_tvBlock())?'TV':'app',
-  });
-  DB.set('logs', logs.slice(0,200));
+  };
+  logs.unshift(entry);
+  DB.transacaoLogAppend(entry, logs.slice(0,200), 'Log: '+tipo);
 }
 
 // Dispara notificação Telegram em segundo plano — NUNCA bloqueia nem afeta
@@ -3640,9 +3718,10 @@ const Auth={
           delete admSenhas[rg];
           DB.set('admSenhas',admSenhas);
           const logsR=DB.get('logs')||[];
-          logsR.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-            tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg}) — senha pessoal revogada, volta a valer o Token de Acesso (COE2026)`});
-          DB.set('logs',logsR.slice(0,200));
+          const entryResgate={dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+            tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg}) — senha pessoal revogada, volta a valer o Token de Acesso (COE2026)`};
+          logsR.unshift(entryResgate);
+          DB.transacaoLogAppend(entryResgate, logsR.slice(0,200), 'Log: RESGATE');
           btn.disabled=false;btn.innerHTML='🔒 ACESSAR SISTEMA';
           this.showCriarSenhaAdm(militar);
           return;
@@ -3672,9 +3751,10 @@ const Auth={
       }
       if(usouResgate){
         const logsR=DB.get('logs')||[];
-        logsR.unshift({dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
-          tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg})`});
-        DB.set('logs',logsR.slice(0,200));
+        const entryResgate2={dt:new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),
+          tipo:'RESGATE',desc:`Acesso via Token Mestre de Resgate (RG ${rg})`};
+        logsR.unshift(entryResgate2);
+        DB.transacaoLogAppend(entryResgate2, logsR.slice(0,200), 'Log: RESGATE');
       }
 
       // Token validado, mas ainda sem senha pessoal própria: obriga a criá-la agora.
@@ -4958,15 +5038,18 @@ const Render={
     const avisos=DB.get('avisos')||[];
     if(avisos.some(a=>a.id===chave)) return;
     const nomes=irregulares.map(m=>`${m.posto} ${m.nome}`).join('\n- ');
-    avisos.unshift({id:chave,
+    const novoIrreg={id:chave,
       titulo:'IRREGULAR - Sem Programacao Semanal',
       texto:'Os seguintes militares NAO enviaram a programacao dentro do prazo (Qui 23h59):\n\n- '+nomes+'\n\nSolicitar regularizacao imediata.',
       prio:'URGENTE',dest:'TODOS',
       autor:'SISTEMA AUTOMATICO',
       data:new Date().toLocaleDateString('pt-BR'),
       lido:false,auto:true
-    });
-    DB.set('avisos',avisos);
+    };
+    avisos.unshift(novoIrreg);
+    // mutador não recria se OUTRA sessão já inseriu esse mesmo id enquanto
+    // esta rodava (idempotente sob concorrência: 2 admins nunca duplicam)
+    DB.transacaoArrayPorId('avisos', chave, (atual)=>atual||novoIrreg, avisos, 'Aviso automático de irregularidade');
   },
 
   // ── EDITAR CÉLULA (aceita chaveKey opcional) ─────────────────────────────
@@ -5329,8 +5412,8 @@ const Render={
     };
     if(!novo.numero||!novo.assunto){alert('Preencha Número e Assunto.');return;}
     const proc=DB.get('processos')||[];
-    if(id)DB.set('processos',proc.map(p=>p.id===id?novo:p));
-    else DB.set('processos',[...proc,novo]);
+    const arrLocalNova = id ? proc.map(p=>p.id===id?novo:p) : [...proc,novo];
+    DB.transacaoArrayPorId('processos', novo.id, ()=>novo, arrLocalNova, `Processo ${novo.numero}`);
     // Telegram: notificação de responsável fica a cargo do sincronizador
     // unificado (_sincronizarNotificacoesProcessos), disparado automaticamente
     // quando o listener do Firebase confirmar esta gravação — evita notificar
@@ -5356,7 +5439,7 @@ const Render={
     if(!confirm('Excluir este processo?'))return;
     const proc=DB.get('processos')||[];
     const alvo=proc.find(p=>p.id===id);
-    DB.set('processos',proc.filter(p=>p.id!==id));
+    DB.transacaoArrayPorId('processos', id, ()=>null, proc.filter(p=>p.id!==id), `Exclusão de processo ${alvo?.numero||id}`);
     _logAdd('EXCLUSÃO', `Processo excluído: ${alvo?.numero||id} por ${Auth.user?.nome||'?'}`);
     Render.processos();
   },
@@ -5508,7 +5591,7 @@ const Render={
   },
   _lerAviso(id){
     const av=DB.get('avisos')||[];
-    DB.set('avisos',av.map(a=>a.id===id?{...a,lido:true}:a));
+    DB.transacaoArrayPorId('avisos', id, (atual)=>atual?{...atual,lido:true}:null, av.map(a=>a.id===id?{...a,lido:true}:a), 'Marcar aviso como lido');
     Render.avisos();
   },
 
@@ -5519,18 +5602,20 @@ const Render={
     const rg=normRG(Auth.user?.rg);
     if(!rg) return;
     const av=DB.get('avisos')||[];
-    DB.set('avisos',av.map(a=>{
-      if(a.id!==id) return a;
-      const confirmados={...(a.confirmados||{})};
+    const mutador=(atual)=>{
+      if(!atual) return null;
+      const confirmados={...(atual.confirmados||{})};
       confirmados[rg]=new Date().toISOString();
-      return {...a, lido:true, confirmados};
-    }));
+      return {...atual, lido:true, confirmados};
+    };
+    DB.transacaoArrayPorId('avisos', id, mutador, av.map(a=>a.id===id?mutador(a):a), 'Confirmação de ciência de aviso');
     Toast.success('✅ Ciência confirmada');
     Render.avisos();
   },
   _delAviso(id){
     if(!confirm('Excluir aviso?'))return;
-    DB.set('avisos',(DB.get('avisos')||[]).filter(a=>a.id!==id));
+    const av=DB.get('avisos')||[];
+    DB.transacaoArrayPorId('avisos', id, ()=>null, av.filter(a=>a.id!==id), 'Exclusão de aviso');
     Render.avisos();
   },
   _novoAviso(){
@@ -5677,7 +5762,7 @@ const Render={
       data:new Date().toLocaleDateString('pt-BR'),lido:false,
     };
     av.unshift(novoAv);
-    DB.set('avisos',av);
+    DB.transacaoArrayPorId('avisos', novoAv.id, ()=>novoAv, av, `Aviso publicado: ${tit}`);
 
     // Telegram: todo aviso publicado vai pro grupo da seção (broadcast único,
     // independente do "dest" de dentro do app — grupo é sempre avisado)
@@ -6463,7 +6548,7 @@ ${legendaHtml}
     } else {
       novaLista=[...ef, novoMembro];
     }
-    DB.set('efetivo', novaLista);
+    DB.transacaoArrayPorId('efetivo', novoMembro.id, ()=>novoMembro, novaLista, `Cadastro de ${posto} ${nome}`);
     if(afTipo){ Afast.set(rg,{tipo:afTipo,dataIni:afIni,dataFim:afFim||null,obs:afObs}); }
     else{ Afast.clear(rg); }
 
@@ -6499,7 +6584,7 @@ ${legendaHtml}
     const temAdmSenha=(DB.get('admSenhas')||{})[m.rg];
     const avisoAcesso=temAdmSenha?' (senha pessoal excluída)':temPin?' (senha excluída)':'';
     if(!confirm(`Remover ${m.posto} ${m.nome} (RG ${m.rg}) do sistema?${avisoAcesso?'\n\n'+avisoAcesso.trim():''}`))return;
-    DB.set('efetivo',ef.filter(e=>e.id!==id));
+    DB.transacaoArrayPorId('efetivo', id, ()=>null, ef.filter(e=>e.id!==id), `Exclusão de ${m.posto} ${m.nome}`);
     // Excluir senha pessoal de ADM
     const admSenhas=DB.get('admSenhas')||{};
     delete admSenhas[m.rg];
