@@ -1176,7 +1176,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.64';
+const APP_VERSAO = '6.65';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -2949,7 +2949,7 @@ const Drawer={
               <div class="drw-row-nm">${escHtml(p.numero)}</div>
               <div class="drw-row-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.assunto)}</div>
             </div>
-            <span class="pill ${c.cls||''}" style="flex-shrink:0">${p.status}</span>
+            <span class="pill ${c.cls||''}" style="flex-shrink:0">${escHtml(p.status)}</span>
           </div>
         </div>`;}).join('')}
       </div>`;
@@ -5075,9 +5075,9 @@ const Render={
           <div class="proc-bar" style="background:${c.cor||'#212734'}"></div>
           <div class="proc-body">
             <div class="proc-tags">
-              <span class="pill ${c.cls||''}">${p.status}</span>
-              <span class="pill ${pi.cls||''}">${p.prio}</span>
-              <span class="pill" style="background:var(--hover);color:var(--muted)">${p.tipo}</span>
+              <span class="pill ${c.cls||''}">${escHtml(p.status)}</span>
+              <span class="pill ${pi.cls||''}">${escHtml(p.prio)}</span>
+              <span class="pill" style="background:var(--hover);color:var(--muted)">${escHtml(p.tipo)}</span>
               ${_prazoPill(p.prazo,p.status)}
             </div>
             <div class="proc-num">${escHtml(p.numero)}</div>
@@ -5104,8 +5104,8 @@ const Render={
           <div class="proc-bar" style="background:var(--gold)"></div>
           <div class="proc-body">
             <div class="proc-tags">
-              <span class="pill ${c.cls||''}">${p.status}</span>
-              <span class="pill ${pi.cls||''}">${p.prio}</span>
+              <span class="pill ${c.cls||''}">${escHtml(p.status)}</span>
+              <span class="pill ${pi.cls||''}">${escHtml(p.prio)}</span>
               <span class="pill" style="background:rgba(200,170,0,.15);color:var(--gold);border:1px solid rgba(200,170,0,.3)">🔗 SEI DIGITAL</span>
               ${p.unidade?`<span class="pill" style="background:var(--hover);color:var(--muted)">${escHtml(p.unidade)}</span>`:''}
               ${_prazoPill(p.prazo,p.status)}
@@ -5420,7 +5420,7 @@ const Render={
                 <div class="av-title">${escHtml(a.titulo)}</div>
               </div>
               <div class="av-tags" style="flex-shrink:0;align-items:flex-start">
-                <span class="pill ${c.cls||''}">${a.prio}</span>
+                <span class="pill ${c.cls||''}">${escHtml(a.prio)}</span>
                 ${!a.lido?'<span class="pill pill-alta" style="font-size:8px">NOVO</span>':''}
                 ${!a.lido?`<button class="btn btn-ghost btn-sm" onclick="Render._lerAviso('${a.id}')">✓ Lido</button>`:''}
                 ${!(a.confirmados&&a.confirmados[normRG(user.rg)])?`<button class="btn btn-primary btn-sm" onclick="Render._confirmarCiencia('${a.id}')">✅ Confirmar Ciência</button>`:`<span class="pill" style="background:rgba(31,157,85,.12);color:#1f9d55;border-color:rgba(31,157,85,.35)">✅ Ciente</span>`}
@@ -7136,9 +7136,9 @@ Render.dashproc = function(){
             <div class="dp-proc-card-num">${escHtml(p.numero)}</div>
             <div class="dp-proc-card-title">${escHtml(p.assunto)}</div>
             <div class="dp-proc-card-tags">
-              <span class="pill ${c.cls||''}">${p.status}</span>
-              <span class="pill ${pi.cls||''}">${p.prio||'—'}</span>
-              <span class="pill" style="background:var(--hover);color:var(--muted)">${p.tipo||'—'}</span>
+              <span class="pill ${c.cls||''}">${escHtml(p.status)}</span>
+              <span class="pill ${pi.cls||''}">${escHtml(p.prio||'—')}</span>
+              <span class="pill" style="background:var(--hover);color:var(--muted)">${escHtml(p.tipo||'—')}</span>
               ${isSei?`<span class="pill" style="background:rgba(200,170,0,.12);color:#c8aa00;border:1px solid rgba(200,170,0,.3)">🔗 SEI</span>`:''}
             </div>
             <div class="dp-proc-card-meta">
@@ -7297,7 +7297,7 @@ Render.dashproc = function(){
       </select>
       <select class="dp-filter-sel" onchange="DB.set('dp_ftipo',this.value);Render.dashproc()">
         <option value="TODOS"${fTipo==='TODOS'?' selected':''}>Todos os tipos</option>
-        ${tiposUnicos.map(t=>`<option value="${t}"${fTipo===t?' selected':''}>${t}</option>`).join('')}
+        ${tiposUnicos.map(t=>`<option value="${escHtml(t)}"${fTipo===t?' selected':''}>${escHtml(t)}</option>`).join('')}
       </select>
       ${(fStatus!=='TODOS'||fPrio!=='TODOS'||fTipo!=='TODOS'||fBusca)?
         `<button class="btn btn-ghost btn-sm" onclick="Render._dpResetFiltros()">✕ Limpar filtros</button>`:''}
@@ -7387,7 +7387,7 @@ Render._dpDetail = function(id, src){
       </div>
       <div class="dp-tl-content">
         <div class="dp-tl-label" style="color:${f.done?'var(--text)':'var(--muted)'}">${f.done?'✓':i+1+'.'} ${f.lbl}</div>
-        <div class="dp-tl-date">${f.date}</div>
+        <div class="dp-tl-date">${escHtml(f.date)}</div>
         <div class="dp-tl-obs">${f.obs}</div>
       </div>
     </div>`).join('');
@@ -7397,9 +7397,9 @@ Render._dpDetail = function(id, src){
       <div class="dp-detail-num">${escHtml(p.numero)}</div>
       <div class="dp-detail-title">${escHtml(p.assunto)}</div>
       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:8px">
-        <span class="pill ${c.cls||''}">${p.status}</span>
-        <span class="pill ${pi.cls||''}">${p.prio||'—'}</span>
-        <span class="pill" style="background:var(--hover);color:var(--muted)">${p.tipo||'—'}</span>
+        <span class="pill ${c.cls||''}">${escHtml(p.status)}</span>
+        <span class="pill ${pi.cls||''}">${escHtml(p.prio||'—')}</span>
+        <span class="pill" style="background:var(--hover);color:var(--muted)">${escHtml(p.tipo||'—')}</span>
         ${isSei?`<span class="pill" style="background:rgba(200,170,0,.15);color:#c8aa00;border:1px solid rgba(200,170,0,.3)">🔗 SEI DIGITAL</span>`:''}
         ${prazoMsg}
       </div>
