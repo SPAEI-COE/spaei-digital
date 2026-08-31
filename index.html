@@ -1177,7 +1177,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.71';
+const APP_VERSAO = '6.72';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1999,6 +1999,7 @@ const DB={
         // incluía essa edição no instante em que outro admin gravou por cima.
         _mem[k]=(k==='escalaSemanas')?mergeEscalaSemanas(_mem[k],val):val;
         try{localStorage.setItem(LS_PFX+k,JSON.stringify(val));}catch(e){}
+        if(k==='processos') _sincronizarNotificacoesProcessos();
         // Atualizar UI em tempo real (sem recarregar a página)
         if(Auth&&Auth.user&&Nav){
           try{ buildNav(); Render[Nav.current]&&Render[Nav.current](); }catch(e){}
@@ -2027,6 +2028,7 @@ const DB={
       }));
       _mem['sei_processos']=arr;
       try{localStorage.setItem(LS_PFX+'sei_processos',JSON.stringify(arr));}catch(e){}
+      _sincronizarNotificacoesProcessos();
       if(Auth&&Auth.user&&Nav&&(Nav.current==='processos'||Nav.current==='dashboard'||Nav.current==='dashproc')){
         try{Render[Nav.current]();}catch(e){}
       }
@@ -3251,6 +3253,57 @@ function _telegramNotificar(endpoint, payload){
     headers: { 'Content-Type': 'application/json', 'x-spaei-key': TELEGRAM_API_KEY },
     body: JSON.stringify(payload),
   }).catch(e => console.warn(`Telegram (${endpoint}) — falha ao notificar:`, e));
+}
+
+// Casa "SGT Gumiero" (nome abreviado dos processos SEI sincronizados, formato
+// "POSTO Sobrenome") contra o efetivo real. Só confia no match se o ÚLTIMO
+// TOKEN do texto bater com uma palavra INTEIRA do nome de EXATAMENTE 1
+// militar — ambíguo (2+ Gumiero) ou sem match nenhum = null, nunca adivinha.
+// Evitar notificar a pessoa errada é mais importante que cobrir 100% dos casos.
+function _matchResponsavelSEI(nomeResp,efetivoList){
+  const tokens=(nomeResp||'').trim().split(/\s+/).filter(Boolean);
+  if(!tokens.length) return null;
+  const chave=tokens[tokens.length-1].toUpperCase();
+  if(chave.length<3) return null;
+  const candidatos=(efetivoList||[]).filter(m=>(m.nome||'').toUpperCase().split(/\s+/).includes(chave));
+  return candidatos.length===1?candidatos[0]:null;
+}
+
+// Roda a cada atualização real de processos (local OU SEI sincronizado):
+// notifica quem é responsável, via Telegram, se ainda não foi avisado NESSE
+// estado exato. Assinatura = status atual — muda status, notifica de novo;
+// nada muda, não repete (dedup gravado em telegramProcessosNotificados).
+// Mesmo mecanismo cobre as 2 coisas pedidas: BACKFILL (1ª vez que roda, nada
+// no dedup ainda, notifica tudo que já existe) e DAQUI PRA FRENTE (só o que
+// mudou desde a última vez) — sem precisar de lógica nem botão separados.
+async function _sincronizarNotificacoesProcessos(){
+  if(!_fbOk||!_fbDB) return;
+  try{
+    const ef=DB.get('efetivo')||[];
+    const vinculos=(await _fbDB.ref(FB_NODE+'/telegramVinculos').once('value')).val()||{};
+    const jaNotif=(await _fbDB.ref(FB_NODE+'/telegramProcessosNotificados').once('value')).val()||{};
+
+    const alvos=[];
+    (DB.get('processos')||[]).forEach(p=>{
+      if(p.respRg) alvos.push({procId:p.id,numero:p.numero,assunto:p.assunto,status:p.status,prazo:p.prazo,rg:p.respRg});
+    });
+    getSeiProcs().forEach(p=>{
+      (p.resp||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(nome=>{
+        const m=_matchResponsavelSEI(nome,ef);
+        if(m) alvos.push({procId:p.id,numero:p.numero,assunto:p.assunto,status:p.status,prazo:p.prazo,rg:m.rg});
+      });
+    });
+
+    alvos.forEach(a=>{
+      if(!vinculos[a.rg]) return; // ainda não vinculou o Telegram — nada a fazer
+      const chave=`${a.procId}__${a.rg}`.replace(/[.#$\[\]/]/g,'_');
+      const assinatura=String(a.status||'');
+      if(jaNotif[chave]===assinatura) return; // já notificado nesse estado exato
+      _telegramNotificar('notificar-processo',{rg:a.rg,numero:a.numero,assunto:a.assunto,status:a.status,prazo:a.prazo});
+      _fbDB.ref(FB_NODE+'/telegramProcessosNotificados/'+chave).set(assinatura).catch(()=>{});
+      jaNotif[chave]=assinatura; // evita reenvio duplicado dentro do mesmo laço
+    });
+  }catch(e){ console.warn('sincronizar notificações de processos:',e); }
 }
 
 // Isenção por intervenção do ADM: ao alterar a escala de outro membro, isenta-o naquela semana.
@@ -5278,13 +5331,10 @@ const Render={
     const proc=DB.get('processos')||[];
     if(id)DB.set('processos',proc.map(p=>p.id===id?novo:p));
     else DB.set('processos',[...proc,novo]);
-
-    // Telegram: notifica o responsável só quando é atribuição nova ou mudou
-    // (criação, troca de responsável, ou mudança de status) — nunca em toda
-    // edição irrelevante (ex. corrigir só o assunto sem mexer em resp/status)
-    if(novo.respRg && (!antigo || antigo.respRg!==novo.respRg || antigo.status!==novo.status)){
-      _telegramNotificar('notificar-processo', {rg:novo.respRg, numero:novo.numero, assunto:novo.assunto, status:novo.status, prazo:novo.prazo});
-    }
+    // Telegram: notificação de responsável fica a cargo do sincronizador
+    // unificado (_sincronizarNotificacoesProcessos), disparado automaticamente
+    // quando o listener do Firebase confirmar esta gravação — evita notificar
+    // 2x (aqui + na sincronização) e cobre local e SEI com a mesma lógica/dedup
 
     // Log — trilha de auditoria por campo
     const u=Auth.user;
@@ -6772,12 +6822,22 @@ ${legendaHtml}
     document.getElementById('s-telegram').innerHTML=`
       <div class="sec-head">
         <div><div class="sec-title">💬 Canal Telegram</div><div class="sec-sub">Conversas com o efetivo via bot @${TELEGRAM_BOT_USERNAME} — atualiza sozinho, em tempo real</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="Render._sincronizarProcessosClick(this)">🔄 Sincronizar processos</button>
       </div>
       <div id="tg-inbox-list"><div class="empty" style="padding:20px">Carregando…</div></div>`;
     if(!_fbOk||!_fbDB){ document.getElementById('tg-inbox-list').innerHTML='<div class="empty" style="padding:20px">Sem conexão com o Firebase agora.</div>'; return; }
     this._iniciarListenerGlobalTelegram();
     const {msgs,lastSeen,vinculos,grupoId}=this._tgCache;
     this._renderInboxTelegram(msgs,vinculos,grupoId,this._contarNaoLidasPorThread(msgs,lastSeen));
+  },
+
+  async _sincronizarProcessosClick(btn){
+    btn.disabled=true; const original=btn.textContent; btn.textContent='Sincronizando…';
+    try{
+      await _sincronizarNotificacoesProcessos();
+      Toast.success('✅ Processos sincronizados com o Telegram');
+    }catch(e){ Toast.error('Falha ao sincronizar. Tente de novo.'); }
+    finally{ btn.disabled=false; btn.textContent=original; }
   },
 
   _renderInboxTelegram(msgs,vinculos,grupoId,naoLidas){
