@@ -1177,7 +1177,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.68';
+const APP_VERSAO = '6.69';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -4115,7 +4115,7 @@ function buildNav(){
   }
   nav.innerHTML=html;
   buildBottomNav(nl,folgaPendente);
-  if(isAdmin&&typeof Render!=='undefined'&&Render._atualizarBadgeTelegram) Render._atualizarBadgeTelegram();
+  if(isAdmin&&typeof Render!=='undefined'&&Render._iniciarListenerGlobalTelegram) Render._iniciarListenerGlobalTelegram();
 }
 
 // ── Barra inferior estilo Instagram (modo membro) ──
@@ -5910,7 +5910,7 @@ ${legendaHtml}
       </div>
       <div id="adm-content"></div>`;
     this._admTab(tab);
-    this._atualizarBadgeTelegram();
+    this._iniciarListenerGlobalTelegram();
   },
 
   _admTab(tab){
@@ -6668,6 +6668,37 @@ ${legendaHtml}
   // ── TELEGRAM — status de vínculo lido DIRETO do Firebase (mesmo projeto,
   // nó /spaei) — nunca via API da Vercel, que só existe pra enviar mensagem
   // (única coisa que precisa do token do bot, secreto, fora do browser) ──
+  // ── TELEGRAM: listeners AO VIVO globais (mensagem/lastSeen/vínculo/grupo) —
+  // iniciados 1x por sessão de admin (idempotente), mantidos o tempo todo,
+  // não só quando a tela está aberta. É isso que torna tudo instantâneo: uma
+  // mensagem nova atualiza o badge do menu mesmo se o admin estiver em OUTRA
+  // tela, e atualiza a lista/conversa na hora se estiverem abertas — sem
+  // precisar de F5 nem de clicar em "Atualizar".
+  _tgCache:{msgs:{},lastSeen:{},vinculos:{},grupoId:null},
+  _tgListenersAtivos:false,
+  _iniciarListenerGlobalTelegram(){
+    if(this._tgListenersAtivos){ this._onTgCacheAtualizado(); return; } // DOM pode ter sido recriado (nova aba/tela) — reaplica o cache já em mãos, mesmo sem evento novo
+    if(!_fbOk||!_fbDB) return;
+    this._tgListenersAtivos=true;
+    _fbDB.ref(FB_NODE+'/telegramMensagens').on('value',snap=>{ this._tgCache.msgs=snap.val()||{}; this._onTgCacheAtualizado(); });
+    _fbDB.ref(FB_NODE+'/telegramLastSeen').on('value',snap=>{ this._tgCache.lastSeen=snap.val()||{}; this._onTgCacheAtualizado(); });
+    _fbDB.ref(FB_NODE+'/telegramVinculos').on('value',snap=>{ this._tgCache.vinculos=snap.val()||{}; this._onTgCacheAtualizado(); });
+    _fbDB.ref(FB_NODE+'/telegramGrupoId').on('value',snap=>{ this._tgCache.grupoId=snap.val()||null; this._onTgCacheAtualizado(); });
+  },
+  // Dispara a cada mudança em QUALQUER um dos 4 nós acima — sempre re-renderiza
+  // só o que está de fato visível na hora (badges sempre; lista/aba só se o
+  // elemento existir no DOM agora), nunca navega nem força tela nenhuma.
+  _onTgCacheAtualizado(){
+    const {msgs,lastSeen,vinculos,grupoId}=this._tgCache;
+    const porThread=this._contarNaoLidasPorThread(msgs,lastSeen);
+    const total=Object.values(porThread).reduce((a,b)=>a+b,0);
+    const badgeSpan = total>0?` <span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:2px">${total>99?'99+':total}</span>`:'';
+    const elAdm=document.getElementById('admtab-telegram-badge'); if(elAdm) elAdm.innerHTML=badgeSpan;
+    const elNav=document.getElementById('nav-telegram-badge'); if(elNav) elNav.innerHTML = total>0?`<span class="nav-badge">${total>99?'99+':total}</span>`:'';
+    if(document.getElementById('adm-tg-lista')&&_fbOk) this._renderAdminTgLista(vinculos,grupoId,porThread);
+    if(document.getElementById('tg-inbox-list')&&_fbOk) this._renderInboxTelegram(msgs,vinculos,grupoId,porThread);
+  },
+
   async _carregarStatusTelegram(){
     const grupoBox=document.getElementById('adm-tg-grupo');
     const box=document.getElementById('adm-tg-lista');
@@ -6677,24 +6708,15 @@ ${legendaHtml}
       box.innerHTML=`<div class="empty" style="padding:16px">Sem conexão com o Firebase agora — status indisponível.</div>`;
       return;
     }
-    let vinculos={}, grupoId=null, naoLidas={};
-    try{
-      const [sV,sG,sM,sL]=await Promise.all([
-        _fbDB.ref(FB_NODE+'/telegramVinculos').once('value'),
-        _fbDB.ref(FB_NODE+'/telegramGrupoId').once('value'),
-        _fbDB.ref(FB_NODE+'/telegramMensagens').once('value'),
-        _fbDB.ref(FB_NODE+'/telegramLastSeen').once('value'),
-      ]);
-      vinculos=sV.val()||{};
-      grupoId=sG.val()||null;
-      naoLidas=this._contarNaoLidasPorThread(sM.val()||{},sL.val()||{});
-    }catch(e){
-      if(document.getElementById('adm-tg-lista')!==box) return;
-      box.innerHTML=`<div class="empty" style="padding:16px">⚠️ Falha ao carregar: ${escHtml(e.message)}</div>`;
-      return;
-    }
-    if(document.getElementById('adm-tg-lista')!==box) return; // trocou de aba nesse meio-tempo
+    this._iniciarListenerGlobalTelegram();
+    const {msgs,lastSeen,vinculos,grupoId}=this._tgCache;
+    this._renderAdminTgLista(vinculos,grupoId,this._contarNaoLidasPorThread(msgs,lastSeen));
+  },
 
+  _renderAdminTgLista(vinculos,grupoId,naoLidas){
+    const grupoBox=document.getElementById('adm-tg-grupo');
+    const box=document.getElementById('adm-tg-lista');
+    if(!box) return;
     const badgeHtml=n=>n>0?` <span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800">${n>99?'99+':n}</span>`:'';
 
     if(grupoBox){
@@ -6738,76 +6760,42 @@ ${legendaHtml}
     return porThread;
   },
 
-  async _atualizarBadgeTelegram(){
-    const el=document.getElementById('admtab-telegram-badge');
-    const elNav=document.getElementById('nav-telegram-badge');
-    if((!el&&!elNav)||!_fbOk||!_fbDB) return;
-    try{
-      const [sM,sL]=await Promise.all([
-        _fbDB.ref(FB_NODE+'/telegramMensagens').once('value'),
-        _fbDB.ref(FB_NODE+'/telegramLastSeen').once('value'),
-      ]);
-      const porThread=this._contarNaoLidasPorThread(sM.val()||{},sL.val()||{});
-      const total=Object.values(porThread).reduce((a,b)=>a+b,0);
-      const badgeSpan = total>0?` <span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:2px">${total>99?'99+':total}</span>`:'';
-      const el2=document.getElementById('admtab-telegram-badge');
-      if(el2) el2.innerHTML=badgeSpan;
-      const elNav2=document.getElementById('nav-telegram-badge');
-      if(elNav2) elNav2.innerHTML = total>0?`<span class="nav-badge">${total>99?'99+':total}</span>`:'';
-    }catch(e){ /* silencioso — badge é auxiliar, nunca deve travar o painel */ }
-  },
-
   // ── TELA "CANAL TELEGRAM" — inbox estilo Telegram, item de menu próprio
   // (antes só existia dentro de Admin > aba Telegram). Reaproveita tudo já
   // testado: _abrirConversaTelegram, _gerarLinkTelegram, _contarNaoLidasPorThread.
+  // Ao vivo: usa o cache global (_tgCache), nunca faz fetch próprio.
   telegram(){
     if(!Auth.user?.admin){ document.getElementById('s-telegram').innerHTML='<div class="empty"><span class="empty-ico">🔒</span>Acesso restrito.</div>'; return; }
     document.getElementById('s-telegram').innerHTML=`
       <div class="sec-head">
-        <div><div class="sec-title">💬 Canal Telegram</div><div class="sec-sub">Conversas com o efetivo via bot @${TELEGRAM_BOT_USERNAME}</div></div>
-        <button class="btn btn-ghost btn-sm" onclick="Render.telegram()">🔄 Atualizar</button>
+        <div><div class="sec-title">💬 Canal Telegram</div><div class="sec-sub">Conversas com o efetivo via bot @${TELEGRAM_BOT_USERNAME} — atualiza sozinho, em tempo real</div></div>
       </div>
       <div id="tg-inbox-list"><div class="empty" style="padding:20px">Carregando…</div></div>`;
-    this._carregarInboxTelegram();
+    if(!_fbOk||!_fbDB){ document.getElementById('tg-inbox-list').innerHTML='<div class="empty" style="padding:20px">Sem conexão com o Firebase agora.</div>'; return; }
+    this._iniciarListenerGlobalTelegram();
+    const {msgs,lastSeen,vinculos,grupoId}=this._tgCache;
+    this._renderInboxTelegram(msgs,vinculos,grupoId,this._contarNaoLidasPorThread(msgs,lastSeen));
   },
 
-  async _carregarInboxTelegram(){
+  _renderInboxTelegram(msgs,vinculos,grupoId,naoLidas){
     const box=document.getElementById('tg-inbox-list');
     if(!box) return;
-    if(!_fbOk||!_fbDB){ box.innerHTML='<div class="empty" style="padding:20px">Sem conexão com o Firebase agora.</div>'; return; }
-    let vinculos={}, grupoId=null, msgs={}, lastSeen={};
-    try{
-      const [sV,sG,sM,sL]=await Promise.all([
-        _fbDB.ref(FB_NODE+'/telegramVinculos').once('value'),
-        _fbDB.ref(FB_NODE+'/telegramGrupoId').once('value'),
-        _fbDB.ref(FB_NODE+'/telegramMensagens').once('value'),
-        _fbDB.ref(FB_NODE+'/telegramLastSeen').once('value'),
-      ]);
-      vinculos=sV.val()||{}; grupoId=sG.val()||null; msgs=sM.val()||{}; lastSeen=sL.val()||{};
-    }catch(e){
-      if(document.getElementById('tg-inbox-list')!==box) return;
-      box.innerHTML=`<div class="empty" style="padding:20px">⚠️ Falha ao carregar: ${escHtml(e.message)}</div>`;
-      return;
-    }
-    if(document.getElementById('tg-inbox-list')!==box) return; // trocou de tela nesse meio-tempo
-
     const ef=DB.get('efetivo')||[];
-    const naoLidas=this._contarNaoLidasPorThread(msgs,lastSeen);
 
     const conversas=[];
     if(grupoId){
-      const gm=Object.values(msgs.GRUPO||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
+      const gm=Object.values((msgs||{}).GRUPO||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
       conversas.push({thread:'GRUPO', nome:'Grupo da Seção', ultima:gm[0]||null, naoLidas:naoLidas.GRUPO||0, isGrupo:true});
     }
-    Object.keys(vinculos).forEach(rg=>{
+    Object.keys(vinculos||{}).forEach(rg=>{
       const m=ef.find(x=>x.rg===rg);
       const nome = m?`${m.posto} ${m.nome}`:(vinculos[rg].nome||('RG '+rg));
-      const tm=Object.values(msgs[rg]||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
+      const tm=Object.values((msgs||{})[rg]||{}).sort((a,b)=>(b.ts||0)-(a.ts||0));
       conversas.push({thread:rg, nome, ultima:tm[0]||null, naoLidas:naoLidas[rg]||0, isGrupo:false, member:m||{rg,nome:vinculos[rg].nome||'',posto:''}});
     });
     conversas.sort((a,b)=>((b.ultima&&b.ultima.ts)||0)-((a.ultima&&a.ultima.ts)||0));
 
-    const pendentes=ef.filter(m=>!vinculos[m.rg]);
+    const pendentes=ef.filter(m=>!(vinculos||{})[m.rg]);
 
     if(conversas.length===0 && pendentes.length===0){ box.innerHTML='<div class="empty" style="padding:20px">Nenhum militar cadastrado.</div>'; return; }
 
@@ -6890,11 +6878,9 @@ ${legendaHtml}
       if(_fbOk&&_fbDB&&this._tgChatListenerRef){ this._tgChatListenerRef.off('value',this._tgChatListenerCb); }
       this._tgChatListenerRef=null; this._tgChatListenerCb=null; this._tgChatThread=null;
       if(_fbOk&&_fbDB){
-        _fbDB.ref(FB_NODE+'/telegramLastSeen/'+thread).set(Date.now()).then(()=>{
-          this._atualizarBadgeTelegram();
-          if(document.getElementById('adm-tg-lista')) this._carregarStatusTelegram();
-          if(document.getElementById('tg-inbox-list')) this._carregarInboxTelegram();
-        }).catch(()=>{});
+        // grava o "visto" — o listener ao vivo de telegramLastSeen já cuida
+        // sozinho de atualizar badge/lista/aba na hora, sem chamada manual
+        _fbDB.ref(FB_NODE+'/telegramLastSeen/'+thread).set(Date.now()).catch(()=>{});
       }
     });
 
