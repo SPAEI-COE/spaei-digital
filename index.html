@@ -1176,7 +1176,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.65';
+const APP_VERSAO = '6.66';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -3888,8 +3888,10 @@ const UI={
 // ════════════════════════════════════════════
 const Modal={
   _lastFocus:null,
-  open(title,html){
+  _onClose:null,
+  open(title,html,onClose){
     this._lastFocus=document.activeElement;
+    this._onClose=onClose||null;
     document.getElementById('modal-title').textContent=String(title||'');
     document.getElementById('modal-body').innerHTML=html;
     document.getElementById('modal-overlay').classList.add('open');
@@ -3897,6 +3899,7 @@ const Modal={
     requestAnimationFrame(()=>box.focus());
   },
   close(){
+    if(this._onClose){ try{this._onClose();}catch(e){} this._onClose=null; }
     document.getElementById('modal-overlay').classList.remove('open');
     if(this._lastFocus&&this._lastFocus.focus){ try{this._lastFocus.focus();}catch(e){} }
     this._lastFocus=null;
@@ -6687,7 +6690,10 @@ ${legendaHtml}
 
     if(grupoBox){
       grupoBox.innerHTML = grupoId
-        ? `<div style="padding:10px 14px;border-radius:10px;background:rgba(31,157,85,.1);border:1px solid rgba(31,157,85,.35);font-size:12px;font-weight:700;color:#1f9d55">✅ Grupo da seção vinculado — avisos publicados chegam lá automaticamente.</div>`
+        ? `<div style="padding:10px 14px;border-radius:10px;background:rgba(31,157,85,.1);border:1px solid rgba(31,157,85,.35);font-size:12px;font-weight:700;color:#1f9d55;display:flex;justify-content:space-between;align-items:center;gap:8px">
+             <span>✅ Grupo da seção vinculado — avisos publicados chegam lá automaticamente.</span>
+             <button class="btn btn-primary btn-sm" style="flex-shrink:0" onclick="Render._abrirConversaTelegram('GRUPO','Grupo da Seção')">💬 Conversa</button>
+           </div>`
         : `<div style="padding:10px 14px;border-radius:10px;background:var(--vmcl);border:1px solid rgba(192,57,43,.35);font-size:12px;font-weight:700;color:var(--vm)">⚠️ Grupo ainda não vinculado — adicione @${TELEGRAM_BOT_USERNAME} ao grupo da seção no Telegram e mande qualquer mensagem lá (é automático, sem comando nenhum).</div>`;
     }
 
@@ -6706,7 +6712,7 @@ ${legendaHtml}
           ${statusHTML}
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          ${v?'':`<button class="btn btn-primary btn-sm" onclick="Render._gerarLinkTelegram(window['_efTgCache_${i}'])">🔗 Gerar link</button>`}
+          ${v?`<button class="btn btn-primary btn-sm" onclick="Render._abrirConversaTelegram(window['_efTgCache_${i}'])">💬 Conversa</button>`:`<button class="btn btn-primary btn-sm" onclick="Render._gerarLinkTelegram(window['_efTgCache_${i}'])">🔗 Gerar link</button>`}
         </div>
       </div>`;
     }).join('');
@@ -6735,6 +6741,87 @@ ${legendaHtml}
     navigator.clipboard.writeText(link)
       .then(()=>Toast.success('🔗 Link copiado'))
       .catch(()=>Toast.warning('Não foi possível copiar automaticamente — selecione e copie manualmente.'));
+  },
+
+  // ── CONVERSA ESTILO TELEGRAM — bolhas em tempo real (live listener no
+  // mesmo nó que o backend grava), com resposta real de dentro do app.
+  // thread: RG (individual) ou o literal 'GRUPO'. onClose do Modal garante
+  // que o listener SEMPRE é removido ao fechar (clique fora, ESC ou botão).
+  _abrirConversaTelegram(memberOuThread,tituloSeGrupo){
+    const isGrupo = memberOuThread==='GRUPO';
+    const thread = isGrupo?'GRUPO':memberOuThread.rg;
+    const titulo = isGrupo?(tituloSeGrupo||'Grupo da Seção'):`${memberOuThread.posto} ${memberOuThread.nome}`;
+    this._tgChatThread = thread;
+
+    Modal.open(`💬 ${titulo}`,`
+      <div id="tg-chat-msgs" style="height:min(50vh,420px);overflow-y:auto;padding:6px 2px;display:flex;flex-direction:column;background:var(--bg);border-radius:10px;margin-bottom:10px">
+        <div class="empty" style="padding:20px">Carregando conversa…</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <input class="form-inp" id="tg-chat-inp" placeholder="Escrever mensagem..." style="flex:1"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();Render._enviarMsgTelegram()}">
+        <button class="btn btn-primary" id="tg-chat-send-btn" onclick="Render._enviarMsgTelegram()">Enviar</button>
+      </div>
+    `, ()=>{
+      if(_fbOk&&_fbDB&&this._tgChatListenerRef){ this._tgChatListenerRef.off('value',this._tgChatListenerCb); }
+      this._tgChatListenerRef=null; this._tgChatListenerCb=null; this._tgChatThread=null;
+    });
+
+    const box=document.getElementById('tg-chat-msgs');
+    if(!_fbOk||!_fbDB){ box.innerHTML='<div class="empty" style="padding:20px">Sem conexão com o Firebase agora.</div>'; return; }
+
+    const ref=_fbDB.ref(FB_NODE+'/telegramMensagens/'+thread);
+    const cb=snap=>{
+      const box2=document.getElementById('tg-chat-msgs');
+      if(!box2||this._tgChatThread!==thread)return; // modal já fechou ou trocou de conversa
+      const val=snap.val()||{};
+      const msgs=Object.values(val).sort((a,b)=>(a.ts||0)-(b.ts||0));
+      const pertoDoFim = box2.scrollHeight-box2.scrollTop-box2.clientHeight<60;
+      if(msgs.length===0){
+        box2.innerHTML='<div class="empty" style="padding:20px">Nenhuma mensagem ainda. Assim que houver troca real com o Telegram, aparece aqui.</div>';
+        return;
+      }
+      box2.innerHTML=msgs.map(m=>this._tgBubble(m)).join('');
+      if(pertoDoFim) box2.scrollTop=box2.scrollHeight;
+    };
+    ref.on('value',cb);
+    this._tgChatListenerRef=ref; this._tgChatListenerCb=cb;
+  },
+
+  _tgBubble(m){
+    const isOut=m.direcao==='out';
+    const hora=(()=>{try{return new Date(m.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}catch(e){return '';}})();
+    const rotulo=m.tipo==='processo'?'📋 Processo atribuído':m.tipo==='aviso'?'🔔 Aviso da seção':m.tipo==='sistema'?'⚙️ Sistema':'';
+    return `<div style="display:flex;justify-content:${isOut?'flex-end':'flex-start'};margin:3px 6px">
+      <div style="max-width:78%;padding:7px 11px;border-radius:14px;${isOut?'background:#2b5278;border-bottom-right-radius:3px':'background:var(--card2);border-bottom-left-radius:3px'};font-size:13px;line-height:1.4;color:#fff;white-space:pre-wrap;word-break:break-word">
+        ${rotulo?`<div style="font-size:10px;font-weight:700;opacity:.75;margin-bottom:2px">${rotulo}</div>`:''}
+        ${escHtml(m.texto||'')}
+        <div style="font-size:9px;opacity:.6;text-align:right;margin-top:2px">${hora}</div>
+      </div>
+    </div>`;
+  },
+
+  async _enviarMsgTelegram(){
+    const thread=this._tgChatThread; if(!thread)return;
+    const inp=document.getElementById('tg-chat-inp'); const btn=document.getElementById('tg-chat-send-btn');
+    const texto=(inp.value||'').trim(); if(!texto)return;
+    btn.disabled=true; btn.textContent='Enviando…';
+    try{
+      const resp=await fetch(`${TELEGRAM_API_BASE}/api/enviar-mensagem`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-spaei-key':TELEGRAM_API_KEY},
+        body:JSON.stringify(thread==='GRUPO'?{grupo:true,texto}:{rg:thread,texto}),
+      });
+      const data=await resp.json().catch(()=>null);
+      if(data&&data.enviado){ inp.value=''; }
+      else if(data&&data.motivo==='sem_vinculo'){ Toast.warning('Esse militar ainda não vinculou o Telegram.'); }
+      else if(data&&data.motivo==='grupo_nao_vinculado'){ Toast.warning('Grupo ainda não vinculado.'); }
+      else { Toast.error('Não foi possível enviar. Tente de novo.'); }
+    }catch(e){
+      Toast.error('Falha de rede ao enviar. Tente de novo.');
+    }finally{
+      btn.disabled=false; btn.textContent='Enviar'; inp.focus();
+    }
   },
 
   _restaurarDeArquivo(inputEl){
