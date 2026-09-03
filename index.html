@@ -891,6 +891,14 @@ body.member-mode #bottom-nav{display:flex}
 .dp-tl-date{font-size:10px;color:var(--muted);margin-top:2px}
 .dp-tl-obs{font-size:11px;color:var(--muted);margin-top:3px;font-style:italic}
 
+.dp-desp-list{margin-bottom:10px;max-height:260px;overflow-y:auto}
+.dp-desp-item{background:var(--hover);border:1px solid var(--border2);border-radius:9px;padding:10px 12px;margin-bottom:8px}
+.dp-desp-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:5px;flex-wrap:wrap}
+.dp-desp-autor{font-size:11px;font-weight:700;color:var(--text)}
+.dp-desp-data{font-size:10px;color:var(--muted);white-space:nowrap}
+.dp-desp-texto{font-size:12px;color:var(--text);line-height:1.5;white-space:pre-wrap}
+.dp-desp-form{background:var(--hover);border:1px solid var(--border2);border-radius:9px;padding:12px}
+
 /* alerta cards */
 .dp-alert-row{padding:10px 13px;border-radius:9px;margin-bottom:7px;display:flex;align-items:flex-start;gap:10px}
 .dp-alert-row.dp-al-critico{background:rgba(192,57,43,.07);border:1px solid rgba(192,57,43,.28)}
@@ -1177,7 +1185,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.74';
+const APP_VERSAO = '6.75';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1470,7 +1478,7 @@ function mergeEscalaSemanas(local, remote){
 // visível — perder alguns segundos de confirmação de um log não prejudica
 // ninguém, e com vários usuários gravando ao mesmo tempo (12+ membros, TV 24h)
 // esse tipo de chave quase sempre tem alguma pendência residual passageira.
-const CHAVES_CRITICAS = ['admSenhas','pins','escalaSemanas','processos','avisos','envios','afastamentos'];
+const CHAVES_CRITICAS = ['admSenhas','pins','escalaSemanas','processos','avisos','envios','afastamentos','despachos'];
 function _pendMarcar(k, desc){
   _pendentes[k] = { desc: desc||k, ts: Date.now() };
   _pendGravar();
@@ -1499,7 +1507,7 @@ function _pendAtualizaAviso(){
 
 // Chaves que sincronizam em tempo real
 const FB_KEYS = ['efetivo','escala','processos','avisos','logs','tokens',
-                 'envios','escalaSemanas','pins','afastamentos','afastHist','isencoesAdm','admSenhas','fotos'];
+                 'envios','escalaSemanas','pins','afastamentos','afastHist','isencoesAdm','admSenhas','fotos','despachos'];
 // Chaves apenas locais (preferências do usuário)
 const LOCAL_KEYS = ['dark','esc_view','p_busca','p_filtro','av_filtro','adm_tab'];
 
@@ -1690,6 +1698,35 @@ const DB={
       if(error){ console.warn('Transação atômica de logs falhou, caindo pro caminho testado:',error); fallbackBlob(); return; }
       if(!committed){ fallbackBlob(); return; }
       _pendLimpar('logs');
+    });
+  },
+
+  // Despachos: histórico imutável por processo (auditoria formal, nunca edita
+  // nem apaga — só ADENDO, que é um novo despacho). Objeto indexado por
+  // processoId → array cronológico ascendente. Transação atômica só no
+  // sub-nó do processo (${FB_NODE}/despachos/${processoId}), mesmo princípio
+  // de transacaoPorRG/setCelulaEscala: 2 responsáveis despachando o MESMO
+  // processo ao mesmo tempo preservam os 2 despachos, nenhum pisa no outro.
+  transacaoDespachoAppend(processoId, entry, desc){
+    if(_tvBlock()) return;
+    const todos = DB.get('despachos')||{};
+    const arrAtual = Array.isArray(todos[processoId]) ? todos[processoId].slice() : [];
+    arrAtual.push(entry);
+    const todosNovo = Object.assign({}, todos, {[processoId]: arrAtual});
+    _mem['despachos']=todosNovo;
+    try{localStorage.setItem(LS_PFX+'despachos',JSON.stringify(todosNovo));}catch(e){}
+    const fallbackBlob=()=>DB.set('despachos',todosNovo,desc);
+    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    _pendMarcar('despachos',desc||'despacho');
+    const ref=_fbDB.ref(`${FB_NODE}/despachos/${processoId}`);
+    ref.transaction(current=>{
+      const arr=Array.isArray(current)?current.slice():[];
+      arr.push(entry);
+      return arr;
+    },(error,committed)=>{
+      if(error){ console.warn(`Transação atômica de despachos/${processoId} falhou, caindo pro caminho testado:`,error); fallbackBlob(); return; }
+      if(!committed){ fallbackBlob(); return; }
+      _pendLimpar('despachos');
     });
   },
 
@@ -2651,6 +2688,15 @@ const AV_CFG={
   'ALTA':   {cls:'pill-media',borda:'#c77700',bg:'rgba(199,119,0,.05)'},
   'NORMAL': {cls:'pill-norm', borda:'#3538d4',bg:'rgba(53,56,212,.04)'},
 };
+// Despachos: modelos rápidos (botão preenche o textarea, o usuário pode editar
+// antes de enviar). Lista editável — só texto, sem lógica associada.
+const DESPACHO_TEMPLATES=[
+  'Encaminhado para análise técnica.',
+  'Aguardando documentação complementar do setor demandante.',
+  'Processo em conformidade, sem pendências.',
+  'Encaminhado à autoridade competente para autorização.',
+  'Concluído e arquivado.',
+];
 
 
 // ════════════════════════════════════════════
@@ -7859,6 +7905,38 @@ Render._dpDetail = function(id, src){
       </div>
     </div>`).join('');
 
+  // Despachos: histórico imutável (auditoria), ordem cronológica ascendente.
+  const despachosDoProc = ((DB.get('despachos')||{})[p.id])||[];
+  const despachosListHtml = despachosDoProc.length
+    ? despachosDoProc.map(d=>`
+      <div class="dp-desp-item">
+        <div class="dp-desp-head">
+          <span class="dp-desp-autor">👤 ${escHtml(d.autorNome||'—')}</span>
+          <span class="dp-desp-data">${escHtml(new Date(d.dataHora).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}))}</span>
+        </div>
+        ${d.faseDestino?`<span class="pill ${(PR_CFG[d.faseDestino]||{}).cls||''}" style="margin-bottom:6px;display:inline-block">→ ${escHtml(d.faseDestino)}</span>`:''}
+        <div class="dp-desp-texto">${escHtml(d.conteudo).replace(/\n/g,'<br>')}</div>
+      </div>`).join('')
+    : `<div style="font-size:12px;color:var(--muted);padding:8px 0">Nenhum despacho registrado ainda.</div>`;
+
+  const podeDespachar = !!Auth.user && !(typeof _tvBlock==='function'&&_tvBlock());
+  const despachoFormHtml = podeDespachar ? `
+    <div class="dp-desp-form">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        ${DESPACHO_TEMPLATES.map((t,i)=>`<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px" onclick="document.getElementById('desp-txt-${p.id}').value=${JSON.stringify(t)}">${escHtml(t.length>28?t.slice(0,28)+'…':t)}</button>`).join('')}
+      </div>
+      <textarea id="desp-txt-${p.id}" class="input" rows="3" placeholder="Escreva o despacho..." style="width:100%;resize:vertical;font-family:inherit"></textarea>
+      ${!isSei&&Auth.user?.admin?`
+      <div style="margin-top:8px">
+        <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px">Mudar fase junto com o despacho (opcional)</label>
+        <select id="desp-fase-${p.id}" class="input" style="width:100%">
+          <option value="">— manter fase atual —</option>
+          ${Object.keys(PR_CFG).map(s=>`<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
+        </select>
+      </div>`:''}
+      <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="Render._salvarDespacho('${p.id}','${isSei?'SEI':'LOCAL'}')">➕ Adicionar Despacho</button>
+    </div>` : '';
+
   Modal.open(`📋 Detalhes do Processo`,`
     <div style="border-left:4px solid ${cor};padding-left:12px;margin-bottom:14px">
       <div class="dp-detail-num">${escHtml(p.numero)}</div>
@@ -7915,12 +7993,56 @@ Render._dpDetail = function(id, src){
     <div style="font-family:'Oswald',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:10px">📍 Linha do Tempo do Processo</div>
     <div class="dp-timeline">${timelineHtml}</div>
 
+    <div style="font-family:'Oswald',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:16px 0 10px">📝 Despachos</div>
+    <div class="dp-desp-list">${despachosListHtml}</div>
+    ${despachoFormHtml}
+
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-ghost" onclick="Modal.close()">✕ Fechar</button>
       ${isSei?`<button class="btn btn-primary" onclick="Modal.close();Render._movSei('${p.id}')">▶️ Movimentar no SEI</button>`:''}
       ${!isSei&&Auth.user?.admin?`<button class="btn btn-ghost" onclick="Modal.close();Render._editProc('${p.id}')">✏️ Editar Processo</button>`:''}
     </div>
   `);
+};
+
+Render._salvarDespacho = function(processoId, src){
+  const isSei = src==='SEI';
+  const ta = document.getElementById(`desp-txt-${processoId}`);
+  const texto = (ta?ta.value:'').trim();
+  if(!texto){ alert('Escreva o conteúdo do despacho antes de enviar.'); return; }
+  const u = Auth.user;
+  if(!u){ alert('Sessão inválida.'); return; }
+  const selFase = document.getElementById(`desp-fase-${processoId}`);
+  const faseDestino = (!isSei && selFase && selFase.value) ? selFase.value : null;
+  const autorNome = `${u.posto} ${u.nome}`;
+  const entry = {
+    id: uid(),
+    processoId,
+    autorRg: u.rg,
+    autorNome,
+    conteudo: texto,
+    dataHora: agoraCorrigido().toISOString(),
+    faseDestino,
+  };
+  DB.transacaoDespachoAppend(processoId, entry, `Despacho`);
+
+  // Fase mudou junto (só admin, só processo local): grava pelo mesmo caminho
+  // testado de _salvarProc (transacaoArrayPorId), reaproveitando a trilha de
+  // auditoria já existente — nunca 2 caminhos diferentes pro mesmo efeito.
+  const proc = DB.get('processos')||[];
+  const antigo = proc.find(x=>x.id===processoId);
+  if(faseDestino && antigo && antigo.status!==faseDestino){
+    const novo = Object.assign({}, antigo, {status:faseDestino});
+    const arrLocalNova = proc.map(p=>p.id===processoId?novo:p);
+    DB.transacaoArrayPorId('processos', processoId, ()=>novo, arrLocalNova, `Processo ${novo.numero}`);
+    _logAdd('DESPACHO', `Despacho em ${novo.numero} por ${autorNome} | Status: "${antigo.status}"→"${faseDestino}"`);
+  } else {
+    const seiP=getSeiProcs();
+    const p = antigo||seiP.find(x=>x.id===processoId||x.numero===processoId);
+    _logAdd('DESPACHO', `Despacho em ${p?p.numero:processoId} por ${autorNome}`);
+  }
+
+  Render._dpDetail(processoId, src); // repaint imediato do modal com o despacho novo
 };
 
 // ── Força-atualização manual: botão visível na interface (Config e topo do
