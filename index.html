@@ -1253,7 +1253,7 @@ const FIREBASE_CONFIG = {
 // Worker automaticamente (via query string na URL de registro) — mudar este
 // valor a cada deploy já basta para tudo se atualizar sozinho, sem precisar
 // lembrar de editar o sw.js nem nenhum outro lugar separadamente.
-const APP_VERSAO = '6.85';
+const APP_VERSAO = '6.86';
 // Sincroniza automaticamente os pontos de HTML ESTÁTICO (que não podem usar
 // ${APP_VERSAO} porque não são template literals JS) com a versão real —
 // elimina de vez o erro recorrente de esquecer de editar essas duas linhas
@@ -1671,7 +1671,15 @@ const DB={
 
     const fallbackBlob=()=>DB.set('escalaSemanas',semanas,desc);
 
-    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){
+    if(!_fbOk||!_fbDB||!anoPlausivel()){
+      // 10/09 — removida a exigência de _fbSynced: ref.transaction() já é
+      // seguro mesmo com cache local desatualizado/ainda sincronizando (o
+      // próprio SDK busca o valor real do servidor e tenta de novo sozinho
+      // se o cache local estava velho — confirmado na doc oficial do
+      // Firebase). Exigir _fbSynced só empurrava exatamente a janela de
+      // maior risco (vários membros abrindo o app quase ao mesmo tempo,
+      // antes da 1ª sincronização completar) pro caminho INSEGURO de blob
+      // inteiro — causa raiz real de escala marcada e não registrada.
       fallbackBlob(); // mesma disciplina do gate de relógio em _gravarComConfirmacao
       return;
     }
@@ -1709,7 +1717,7 @@ const DB={
     _mem[chave]=arrLocalNova;
     try{localStorage.setItem(LS_PFX+chave,JSON.stringify(arrLocalNova));}catch(e){}
     const fallbackBlob=()=>DB.set(chave,arrLocalNova,desc);
-    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    if(!_fbOk||!_fbDB||!anoPlausivel()){ fallbackBlob(); return; } // 10/09: sem exigir _fbSynced (transaction() já reconcilia com o servidor sozinho)
     _pendMarcar(chave,desc||chave);
     const ref=_fbDB.ref(`${FB_NODE}/${chave}`);
     ref.transaction(current=>{
@@ -1736,7 +1744,7 @@ const DB={
     _mem[chave]=objLocalNovo;
     try{localStorage.setItem(LS_PFX+chave,JSON.stringify(objLocalNovo));}catch(e){}
     const fallbackBlob=()=>DB.set(chave,objLocalNovo,desc);
-    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    if(!_fbOk||!_fbDB||!anoPlausivel()){ fallbackBlob(); return; } // 10/09: sem exigir _fbSynced (transaction() já reconcilia com o servidor sozinho)
     _pendMarcar(chave,desc||chave);
     const ref=_fbDB.ref(`${FB_NODE}/${chave}/${normRG(rg)}`);
     ref.transaction(current=>mutadorFn(current===undefined?null:current),(error,committed)=>{
@@ -1755,7 +1763,7 @@ const DB={
     _mem['logs']=arrLocalNova;
     try{localStorage.setItem(LS_PFX+'logs',JSON.stringify(arrLocalNova));}catch(e){}
     const fallbackBlob=()=>DB.set('logs',arrLocalNova,desc);
-    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    if(!_fbOk||!_fbDB||!anoPlausivel()){ fallbackBlob(); return; } // 10/09: sem exigir _fbSynced (transaction() já reconcilia com o servidor sozinho)
     _pendMarcar('logs',desc||'log');
     const ref=_fbDB.ref(`${FB_NODE}/logs`);
     ref.transaction(current=>{
@@ -1784,7 +1792,7 @@ const DB={
     _mem['despachos']=todosNovo;
     try{localStorage.setItem(LS_PFX+'despachos',JSON.stringify(todosNovo));}catch(e){}
     const fallbackBlob=()=>DB.set('despachos',todosNovo,desc);
-    if(!_fbOk||!_fbDB||!_fbSynced||!anoPlausivel()){ fallbackBlob(); return; }
+    if(!_fbOk||!_fbDB||!anoPlausivel()){ fallbackBlob(); return; } // 10/09: sem exigir _fbSynced (transaction() já reconcilia com o servidor sozinho)
     _pendMarcar('despachos',desc||'despacho');
     const ref=_fbDB.ref(`${FB_NODE}/despachos/${processoId}`);
     ref.transaction(current=>{
@@ -2885,6 +2893,18 @@ function escHtml(v){
   if(v===null||v===undefined) return '';
   return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+// ── ARGUMENTO SEGURO PRA onclick (10/09, bug real em produção) ──────────
+// escHtml() NÃO protege texto livre usado como argumento de string dentro de
+// onclick="funcao('${x}')": o navegador decodifica a entidade HTML (&#39;→')
+// ANTES de compilar o atributo como JS, reintroduzindo o caractere cru e
+// quebrando a sintaxe (visto em produção: SyntaxError "Unexpected end of
+// input" ao abrir processo SEI via deep-link, numero/id do processo cru num
+// onclick). Nunca embutir texto livre (p.numero, p.id vindo de fonte externa
+// como o SEI) como literal de string em onclick — cachear e passar só o
+// índice numérico, que nunca pode quebrar sintaxe nenhuma.
+window._argCache = window._argCache || [];
+function _safeArg(v){ window._argCache.push(v); return window._argCache.length-1; }
+function _argVal(i){ return window._argCache[i]; }
 // ── HIERARQUIA MILITAR PMERJ ─────────────────────────────────────────
 // Índice de posto: menor = mais alto na hierarquia
 const POSTO_ORDEM={
@@ -3115,7 +3135,7 @@ const Drawer={
       <div id="drw-list-proc">
         ${pend.length===0?'<div class="drw-empty">Nenhum processo pendente.</div>':'<div class="drw-sec">Pendentes</div>'}
         ${pend.map(p=>{const c=PR_CFG[p.status]||{};return`
-        <div class="drw-row" style="border-left-color:${c.cor||'#212734'};cursor:pointer" onclick="Drawer.close();Nav.go('processos')" data-search="${p.numero.toLowerCase()} ${p.assunto.toLowerCase()} ${p.resp.toLowerCase()}">
+        <div class="drw-row" style="border-left-color:${c.cor||'#212734'};cursor:pointer" onclick="Drawer.close();Nav.go('processos')" data-search="${escHtml(p.numero.toLowerCase())} ${escHtml(p.assunto.toLowerCase())} ${escHtml(p.resp.toLowerCase())}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
             <div style="min-width:0">
               <div class="drw-row-nm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.assunto)}</div>
@@ -3249,7 +3269,7 @@ const Drawer={
       ${todos.length===0?'<div class="drw-empty">Nenhum processo para este responsável.</div>':''}
       <div id="drw-list-procresp">
         ${todos.map(({p,src})=>{const c=PR_CFG[p.status]||{};return`
-        <div class="drw-row" style="border-left-color:${c.cor||'#212734'};cursor:pointer" onclick="Drawer.close();Render._dpDetail('${p.id}','${src}')">
+        <div class="drw-row" style="border-left-color:${c.cor||'#212734'};cursor:pointer" onclick="Drawer.close();Render._dpDetail(_argVal(${_safeArg(p.id)}),_argVal(${_safeArg(src)}))">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
             <div style="min-width:0">
               <div class="drw-row-nm">${escHtml(p.numero)}</div>
@@ -5515,8 +5535,8 @@ const Render={
             </div>
           </div>
           ${user.admin?`<div class="proc-acts">
-            <button class="btn btn-ghost btn-sm" onclick="Render._editProc('${p.id}')" style="padding:5px 7px">✏️</button>
-            <button class="btn btn-danger btn-sm" onclick="Render._delProc('${p.id}')" style="padding:5px 7px">🗑️</button>
+            <button class="btn btn-ghost btn-sm" onclick="Render._editProc(_argVal(${_safeArg(p.id)}))" style="padding:5px 7px">✏️</button>
+            <button class="btn btn-danger btn-sm" onclick="Render._delProc(_argVal(${_safeArg(p.id)}))" style="padding:5px 7px">🗑️</button>
           </div>`:''}
         </div>`}).join(''):'')}
       ${filteredSei.length>0?`
@@ -5545,8 +5565,8 @@ const Render={
             </div>
             ${p.observacoes?`<div style="margin-top:6px;font-size:.78rem;color:var(--muted);font-style:italic">${escHtml(p.observacoes)}</div>`:''}
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-ghost btn-sm" onclick="Render._movSei('${p.id}')">▶️ Movimentar</button>
-              ${p.status!=='CONCLUÍDO'?`<button class="btn btn-sm" style="background:rgba(19,112,62,.12);color:#1f9d55;border:1px solid rgba(19,112,62,.35)" onclick="Render._concluirSei('${p.id}')">✅ Concluir</button>`:''}
+              <button class="btn btn-ghost btn-sm" onclick="Render._movSei(_argVal(${_safeArg(p.id)}))">▶️ Movimentar</button>
+              ${p.status!=='CONCLUÍDO'?`<button class="btn btn-sm" style="background:rgba(19,112,62,.12);color:#1f9d55;border:1px solid rgba(19,112,62,.35)" onclick="Render._concluirSei(_argVal(${_safeArg(p.id)}))">✅ Concluir</button>`:''}
             </div>
           </div>
         </div>`}).join('')}
@@ -8094,7 +8114,7 @@ Render.dashproc = function(){
       const pi=PI_CFG[p.prio]||{};
       const isSei=p._src==='SEI';
       return `
-      <div class="dp-proc-card" onclick="Render._dpDetail('${p.id||p.numero}','${p._src||'LOCAL'}')" title="Clique para ver detalhes completos">
+      <div class="dp-proc-card" onclick="Render._dpDetail(_argVal(${_safeArg(p.id||p.numero)}),_argVal(${_safeArg(p._src||'LOCAL')}))" title="Clique para ver detalhes completos">
         <div class="dp-proc-card-top">
           <div class="dp-proc-card-stripe" style="background:${cor}"></div>
           <div class="dp-proc-card-body">
@@ -8136,7 +8156,7 @@ Render.dashproc = function(){
           <div class="dp-alert-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(p.assunto)}</div>
           <div class="dp-alert-sub">${escHtml(p.numero)} · ${escHtml(p.resp||'—')} · ${msg}</div>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();Render._dpDetail('${p.id||p.numero}','${p._src||'LOCAL'}')">Ver</button>
+        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();Render._dpDetail(_argVal(${_safeArg(p.id||p.numero)}),_argVal(${_safeArg(p._src||'LOCAL')}))">Ver</button>
       </div>`;
     }).join('');
   }
@@ -8384,7 +8404,7 @@ Render._dpDetail = function(id, src){
   const despachoFormHtml = podeDespachar ? `
     <div class="dp-desp-form">
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-        ${DESPACHO_TEMPLATES.map((t,i)=>`<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px" onclick="document.getElementById('desp-txt-${p.id}').value=${JSON.stringify(t)}">${escHtml(t.length>28?t.slice(0,28)+'…':t)}</button>`).join('')}
+        ${DESPACHO_TEMPLATES.map((t,i)=>`<button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px" onclick="document.getElementById(_argVal(${_safeArg('desp-txt-'+p.id)})).value=${JSON.stringify(t)}">${escHtml(t.length>28?t.slice(0,28)+'…':t)}</button>`).join('')}
       </div>
       <textarea id="desp-txt-${p.id}" class="input" rows="3" placeholder="Escreva o despacho..." style="width:100%;resize:vertical;font-family:inherit"></textarea>
       ${!isSei&&Auth.user?.admin?`
@@ -8395,7 +8415,7 @@ Render._dpDetail = function(id, src){
           ${Object.keys(PR_CFG).map(s=>`<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
         </select>
       </div>`:''}
-      <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="Render._salvarDespacho('${p.id}','${isSei?'SEI':'LOCAL'}')">➕ Adicionar Despacho</button>
+      <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="Render._salvarDespacho(_argVal(${_safeArg(p.id)}),_argVal(${_safeArg(isSei?'SEI':'LOCAL')}))">➕ Adicionar Despacho</button>
     </div>` : '';
 
   // Deep-link: URL reflete o processo aberto (compartilhável), sem empilhar
@@ -8471,9 +8491,9 @@ Render._dpDetail = function(id, src){
 
     <div class="btn-row" style="margin-top:14px">
       <button class="btn btn-ghost" onclick="Modal.close()">✕ Fechar</button>
-      <button class="btn btn-ghost" onclick="Render._copiarLinkProcesso('${p.id}','${isSei?'SEI':'LOCAL'}')">🔗 Copiar Link</button>
-      ${isSei?`<button class="btn btn-primary" onclick="Modal.close();Render._movSei('${p.id}')">▶️ Movimentar no SEI</button>`:''}
-      ${!isSei&&Auth.user?.admin?`<button class="btn btn-ghost" onclick="Modal.close();Render._editProc('${p.id}')">✏️ Editar Processo</button>`:''}
+      <button class="btn btn-ghost" onclick="Render._copiarLinkProcesso(_argVal(${_safeArg(p.id)}),_argVal(${_safeArg(isSei?'SEI':'LOCAL')}))">🔗 Copiar Link</button>
+      ${isSei?`<button class="btn btn-primary" onclick="Modal.close();Render._movSei(_argVal(${_safeArg(p.id)}))">▶️ Movimentar no SEI</button>`:''}
+      ${!isSei&&Auth.user?.admin?`<button class="btn btn-ghost" onclick="Modal.close();Render._editProc(_argVal(${_safeArg(p.id)}))">✏️ Editar Processo</button>`:''}
     </div>
   `,()=>{
     try{
@@ -8805,7 +8825,7 @@ Render._rpRenderResultado = function(){
   </tr></thead><tbody>`;
   r.linhas.forEach(p=>{
     const c=PR_CFG[p.status]||{};
-    html+=`<tr onclick="Render._dpDetail('${p.id}','${p._seiSync?'SEI':'LOCAL'}')" style="cursor:pointer">
+    html+=`<tr onclick="Render._dpDetail(_argVal(${_safeArg(p.id)}),_argVal(${_safeArg(p._seiSync?'SEI':'LOCAL')}))" style="cursor:pointer">
       <td>${escHtml(p.numero)}</td>
       <td>${escHtml(p.assunto)}</td>
       <td>${escHtml(p.unidade||'—')}</td>
