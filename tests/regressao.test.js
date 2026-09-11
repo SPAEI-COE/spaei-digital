@@ -206,6 +206,89 @@ async function main() {
     checar('5.7 — zero erro JS não tratado', errosJs.length === 0, errosJs.join('; '));
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 6 — onclick com numero/id de processo vindo do SEI (texto externo,
+  // não controlado pelo app): reproduz o SyntaxError REAL capturado pelo
+  // Sentry em produção (10/09/2026, "Unexpected end of input" ao abrir
+  // processo via card, mecanismo auto.browser.global_handlers.onerror).
+  // escHtml() sozinho NÃO protege argumento de string dentro de onclick
+  // (o navegador decodifica a entidade ANTES de compilar o atributo como
+  // JS) — a correção usa _safeArg/_argVal (índice numérico, nunca quebra
+  // sintaxe) em vez de interpolar o texto livre direto na string.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, errosJs } = await bootApp();
+    window.eval(`
+      Auth.user = { rg:'ADM001', nome:'Admin Teste', posto:'CAP', admin:true };
+      DB.set('efetivo', [{rg:'ADM001', nome:'Admin Teste', posto:'CAP', chefe:false, admin:true}], 'seed');
+      DB.set('processos', [], 'seed');
+      _fbOk=true; _fbSynced=true;
+      _mem['sei_processos'] = [{
+        id: undefined, numero: "SEI-260002/002950/2026 O'BRIEN", assunto: 'Processo de teste',
+        status: 'EM ANDAMENTO', prio: 'ALTA', resp: 'Fulano de Tal', criado: '01/09/2026',
+        prazo: '30/09/2026', tipo: 'AQUISIÇÃO', _src: 'SEI'
+      }];
+    `);
+    await new Promise(r => setTimeout(r, 50));
+    window.eval(`Nav.go('dashproc');`);
+    await new Promise(r => setTimeout(r, 100));
+
+    const html = window.eval(`document.getElementById('s-dashproc').innerHTML`);
+    checar("6.1 — onclick do card NÃO tem o apóstrofo cru (usa _argVal, nunca texto livre)", !/onclick="[^"]*O\\'BRIEN/.test(html) && !/onclick="[^"]*O'BRIEN/.test(html));
+
+    const temCard = window.eval(`document.querySelector('.dp-proc-card') !== null`);
+    checar('6.2 — card do processo SEI renderizou', temCard);
+
+    // Clique real no card — é exatamente esse evento que, no código antigo,
+    // disparava o SyntaxError capturado pelo window.onerror (== Sentry).
+    window.eval(`document.querySelector('.dp-proc-card').dispatchEvent(new window.MouseEvent('click',{bubbles:true}))`);
+    await new Promise(r => setTimeout(r, 100));
+
+    checar('6.3 — clique no card NÃO gera SyntaxError/erro JS não tratado', errosJs.length === 0, errosJs.join('; '));
+    const modalAbriu = window.eval(`document.querySelector('.dp-detail-num') !== null`);
+    checar('6.4 — modal de detalhes do processo abriu de verdade (numero com apóstrofo íntegro)', modalAbriu);
+    if (modalAbriu) {
+      const numeroExibido = window.eval(`document.querySelector('.dp-detail-num').textContent`);
+      checar("6.5 — numero exibido no modal preserva o apóstrofo (O'BRIEN)", numeroExibido.includes("O'BRIEN"), numeroExibido);
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 7 — escrita de escala ANTES da 1ª sincronização completa (_fbOk
+  // true, _fbSynced ainda false): reproduz a janela real de perda relatada
+  // em produção (10/09/2026, "marquei e não ficou registrada") — vários
+  // membros abrindo o app quase ao mesmo tempo caíam no blob antigo
+  // (sobrescrita) em vez da transação atômica por célula.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store } = await bootApp();
+    window.eval(`
+      Auth.user = { rg:'ADM001', nome:'Admin Teste', posto:'CAP', admin:true };
+      DB.set('efetivo', [
+        {rg:'ADM001', nome:'Admin Teste', posto:'CAP', chefe:false, admin:true},
+        {rg:'333333', nome:'Ciclano', posto:'SD', chefe:false},
+      ], 'seed');
+      window.__blobCalls = 0;
+      const origSet = DB.set.bind(DB);
+      DB.set = function(k,v,d){ if(k==='escalaSemanas') window.__blobCalls++; return origSet(k,v,d); };
+      _fbOk = true; _fbSynced = false; // exatamente a janela vulnerável (conectado, mas 1ª leitura ainda não terminou)
+    `);
+    await new Promise(r => setTimeout(r, 50));
+    window.eval(`Escala.setStatus('333333', 2, 'DISPENSA');`);
+    await new Promise(r => setTimeout(r, 80));
+
+    const key = window.eval(`Escala.chaveAtual()`);
+    const remoto = store.spaei && store.spaei.escalaSemanas && store.spaei.escalaSemanas[key] && store.spaei.escalaSemanas[key]['333333'];
+    checar('7.1 — com _fbSynced=false mas online, grava via transação atômica no "servidor" mesmo assim', !!remoto && remoto[2] === 'DISPENSA', JSON.stringify(remoto));
+    checar('7.2 — NÃO usou o caminho antigo de blob (fallback) enquanto ainda dava pra usar a transação segura', window.eval('window.__blobCalls') === 0, window.eval('window.__blobCalls'));
+
+    // Continua caindo pro blob quando GENUINAMENTE offline (comportamento antigo preservado)
+    window.eval(`_fbOk = false;`);
+    window.eval(`Escala.setStatus('333333', 4, 'FOLGA');`);
+    await new Promise(r => setTimeout(r, 60));
+    checar('7.3 — genuinamente offline (_fbOk=false) ainda usa o fallback (blob) — comportamento antigo preservado', window.eval('window.__blobCalls') > 0);
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
