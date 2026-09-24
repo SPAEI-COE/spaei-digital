@@ -289,6 +289,73 @@ async function main() {
     checar('7.3 — genuinamente offline (_fbOk=false) ainda usa o fallback (blob) — comportamento antigo preservado', window.eval('window.__blobCalls') > 0);
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 8 — Feriados/Calendário: laço infinito de re-render (microtask)
+  // que CONGELAVA a aba (v6.87). Causa: Render.calendario chamava sempre
+  // Feriados.carregar(ano).then(render) — com o ano já em cache, a promise
+  // resolvia na hora → render → carregar → render... E com busca em
+  // andamento, carregar devolvia null na hora → mesmo laço no Dashboard.
+  // O wrapper abaixo corta o laço em 50 renders (senão o próprio teste
+  // congelaria o CI) e conta quantas vezes a tela foi redesenhada.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, errosJs } = await bootApp();
+    window.eval(`
+      Auth.user = { rg:'ADM001', nome:'Admin Teste', posto:'CAP', admin:true };
+      DB.set('efetivo', [{rg:'ADM001', nome:'Admin Teste', posto:'CAP', chefe:false, admin:true}], 'seed');
+      window.__nCal = 0; window.__nDash = 0;
+      const _c = Render.calendario, _d = Render.dashboard;
+      Render.calendario = function(){ if(++window.__nCal > 50) return; return _c.apply(this, arguments); };
+      Render.dashboard  = function(){ if(++window.__nDash > 50) return; return _d.apply(this, arguments); };
+      const _ano = String(agoraCorrigido().getFullYear());
+      Feriados._cache[_ano] = [{date:_ano+'-04-23', name:'Dia de São Jorge', type:'estadual'}];
+    `);
+    window.eval(`Nav.go('calendario');`);
+    await new Promise(r => setTimeout(r, 120));
+    const nCal = window.eval('window.__nCal');
+    checar('8.1 — Calendário com ano já em cache NÃO entra em laço de re-render', nCal <= 3, nCal);
+
+    window.eval(`
+      const _ano = String(agoraCorrigido().getFullYear());
+      delete Feriados._cache[_ano];
+      Feriados._carregando[_ano] = new Promise(() => {}); // busca "em andamento" que ainda não voltou
+      window.__nDash = 0;
+      Nav.go('dashboard'); Render.dashboard(); // 2º render durante a busca (ex.: listener do Firebase)
+    `);
+    await new Promise(r => setTimeout(r, 120));
+    const nDash = window.eval('window.__nDash');
+    checar('8.2 — Dashboard com busca de feriados em andamento NÃO entra em laço de re-render', nDash <= 3, nDash);
+    checar('8.3 — zero erro JS não tratado no grupo 8', errosJs.length === 0, errosJs.join(' | '));
+  }
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 9 — "Processos por Responsável" (Dashboard): nome com aspas
+  // duplas/apóstrofo ia cru dentro do onclick e quebrava o clique
+  // (SyntaxError), irmão não coberto pelo fix _safeArg da v6.86.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, errosJs } = await bootApp();
+    const RESP = `D'ÁVILA "Chefe"`;
+    window.eval(`
+      Auth.user = { rg:'ADM001', nome:'Admin Teste', posto:'CAP', admin:true };
+      DB.set('efetivo', [{rg:'ADM001', nome:'Admin Teste', posto:'CAP', chefe:false, admin:true}], 'seed');
+      DB.set('processos', [
+        {id:'P1', numero:'SEI-AAA', assunto:'X', resp:${JSON.stringify(RESP)}, status:'EM ANDAMENTO', prio:'ALTA'},
+        {id:'P2', numero:'SEI-BBB', assunto:'Y', resp:'Outro', status:'EM ANDAMENTO', prio:'ALTA'},
+      ], 'seed');
+      Nav.go('dashboard');
+    `);
+    await new Promise(r => setTimeout(r, 80));
+    const alvo = [...window.document.querySelectorAll('[onclick*="procresp"]')]
+      .find(e => e.textContent.includes("D'ÁVILA"));
+    checar('9.1 — card do responsável renderizou', !!alvo);
+    if (alvo) alvo.click();
+    await new Promise(r => setTimeout(r, 60));
+    const corpo = window.document.getElementById('drw-body').innerHTML;
+    checar('9.2 — drawer abriu filtrado no responsável certo (nome íntegro)', window.document.getElementById('drw-ttl').textContent === `Processos — ${RESP}` && corpo.includes('SEI-AAA') && !corpo.includes('SEI-BBB'), window.document.getElementById('drw-ttl').textContent);
+    checar('9.3 — clique NÃO gera SyntaxError/erro JS não tratado', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
