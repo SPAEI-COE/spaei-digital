@@ -356,6 +356,75 @@ async function main() {
     checar('9.3 — clique NÃO gera SyntaxError/erro JS não tratado', errosJs.length === 0, errosJs.join(' | '));
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 10 — ANTI-DESCONFIGURAÇÃO (v6.88). Bug real relatado: "o membro
+  // marca a folga/dispensa e poucos dias depois não está mais marcado".
+  // Causa reproduzida: aparelho com cache antigo abria o app, Motor.tick()
+  // gerava a escala padrão antes da 1ª sincronização e o flush gravava o nó
+  // escalaSemanas INTEIRO por cima, zerando as marcações dos OUTROS membros.
+  // Usa o trecho REAL de sincronização inicial do index.html (extraído do
+  // próprio arquivo, sem reescrever), porque o mock não simula
+  // .info/connected.
+  // ───────────────────────────────────────────────────────────
+  {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf-8');
+    const ini = src.indexOf('_fbDB.ref(FB_NODE).get().then(s=>{');
+    const SYNC = src.slice(ini, src.indexOf('}).catch(()=>{});', ini) + 17);
+    const P = ['SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','FOLGA','FOLGA'];
+
+    // 10.1-10.3: celular com cache velho (sem as semanas novas) abre o app
+    {
+      const { window, store, errosJs } = await bootApp();
+      window.eval(`DB.set('efetivo',[{rg:'111111',nome:'Fulano',posto:'SD'},{rg:'222222',nome:'Beltrano',posto:'CB'}],'seed');`);
+      await new Promise(r => setTimeout(r, 40));
+      const kA = window.eval('chaveDeData(calcSemana(0)[0].jsDate)'), kP = window.eval('chaveDeData(calcSemana(1)[0].jsDate)');
+      store.spaei = store.spaei || {};
+      store.spaei.escalaSemanas = { [kA]: { '111111': ['FOLGA', ...P.slice(1)] }, [kP]: { '111111': ['DISPENSA', 'DISPENSA', ...P.slice(2)] } };
+      window.eval(`
+        Auth.user = { rg:'222222', nome:'Beltrano', posto:'CB' };
+        try{ localStorage.setItem(LS_PFX+'escalaSemanas__base', JSON.stringify({'2020-W01':{'111111':${JSON.stringify(P)}}})); }catch(e){}
+        if(typeof _escBase!=='undefined') _escBase = undefined;
+        _mem.escalaSemanas = {'2020-W01':{'111111':${JSON.stringify(P)}}};
+        _fbOk = true; _fbSynced = false; _fbQueue.clear(); Object.keys(_pendentes).forEach(k=>delete _pendentes[k]);
+        Motor.tick(); // exatamente o que App.init() faz ao abrir
+      `);
+      window.eval(SYNC);
+      await new Promise(r => setTimeout(r, 300));
+      const s = store.spaei.escalaSemanas;
+      checar('10.1 — cache velho abrindo o app NÃO apaga folga/dispensa de OUTRO membro', s[kA]['111111'][0] === 'FOLGA' && s[kP]['111111'][0] === 'DISPENSA', JSON.stringify([s[kA]['111111'], s[kP]['111111']]));
+      checar('10.2 — tela do aparelho passa a mostrar o dado real do servidor', window.eval(`Escala.getStatusByKey('111111','${kP}')[0]`) === 'DISPENSA');
+      checar('10.3 — zero erro JS não tratado', errosJs.length === 0, errosJs.join(' | '));
+    }
+
+    // 10.4-10.6: marcação feita offline + ADM mudou outro dia/outro membro no servidor
+    {
+      const { window, store } = await bootApp();
+      window.eval(`DB.set('efetivo',[{rg:'111111',nome:'Fulano',posto:'SD'},{rg:'222222',nome:'Beltrano',posto:'CB'}],'seed');`);
+      await new Promise(r => setTimeout(r, 40));
+      const kP = window.eval('chaveDeData(calcSemana(1)[0].jsDate)');
+      store.spaei = store.spaei || {};
+      store.spaei.escalaSemanas = { [kP]: { '222222': [...P], '111111': [...P] } };
+      const base = JSON.stringify({ [kP]: { '222222': P, '111111': P } });
+      window.eval(`
+        Auth.user = { rg:'222222', nome:'Beltrano', posto:'CB' };
+        try{ localStorage.setItem(LS_PFX+'escalaSemanas__base', ${JSON.stringify(base)}); }catch(e){}
+        if(typeof _escBase!=='undefined') _escBase = undefined;
+        _mem.escalaSemanas = ${base};
+        _fbOk = false; _fbSynced = false; _fbQueue.clear(); Object.keys(_pendentes).forEach(k=>delete _pendentes[k]);
+        DB.setCelulaEscala('${kP}','222222',2,'DISPENSA',defaultStatusSemana(false),'marcação offline');
+      `);
+      store.spaei.escalaSemanas[kP]['222222'][4] = 'FOLGA';
+      store.spaei.escalaSemanas[kP]['111111'][0] = 'FOLGA';
+      window.eval('_fbOk = true;');
+      window.eval(SYNC);
+      await new Promise(r => setTimeout(r, 300));
+      const s = store.spaei.escalaSemanas[kP];
+      checar('10.4 — marcação feita offline chega ao servidor ao reconectar', s['222222'][2] === 'DISPENSA', JSON.stringify(s['222222']));
+      checar('10.5 — alteração do ADM em outro dia da mesma linha preservada', s['222222'][4] === 'FOLGA');
+      checar('10.6 — alteração do ADM em outro membro preservada', s['111111'][0] === 'FOLGA', JSON.stringify(s['111111']));
+    }
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
