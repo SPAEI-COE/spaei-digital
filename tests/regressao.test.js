@@ -370,6 +370,9 @@ async function main() {
     const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf-8');
     const ini = src.indexOf('_fbDB.ref(FB_NODE).get().then(s=>{');
     const SYNC = src.slice(ini, src.indexOf('}).catch(()=>{});', ini) + 17);
+    // Espera por CONDIÇÃO (até 5s), nunca tempo fixo — runner de CI mais lento
+    // não pode virar falso negativo (mesma classe do flake conhecido de boot.js).
+    const esperarAte = async (cond, max = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < max) { try { if (cond()) return true; } catch (e) {} await new Promise(r => setTimeout(r, 25)); } return false; };
     const P = ['SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','FOLGA','FOLGA'];
 
     // 10.1-10.3: celular com cache velho (sem as semanas novas) abre o app
@@ -389,7 +392,7 @@ async function main() {
         Motor.tick(); // exatamente o que App.init() faz ao abrir
       `);
       window.eval(SYNC);
-      await new Promise(r => setTimeout(r, 300));
+      await esperarAte(() => window.eval('_fbSynced') && !window.eval('!!_pendentes.escalaSemanas') && store.spaei.escalaSemanas[kP] && store.spaei.escalaSemanas[kP]['222222']);
       const s = store.spaei.escalaSemanas;
       checar('10.1 — cache velho abrindo o app NÃO apaga folga/dispensa de OUTRO membro', s[kA]['111111'][0] === 'FOLGA' && s[kP]['111111'][0] === 'DISPENSA', JSON.stringify([s[kA]['111111'], s[kP]['111111']]));
       checar('10.2 — tela do aparelho passa a mostrar o dado real do servidor', window.eval(`Escala.getStatusByKey('111111','${kP}')[0]`) === 'DISPENSA');
@@ -417,7 +420,7 @@ async function main() {
       store.spaei.escalaSemanas[kP]['111111'][0] = 'FOLGA';
       window.eval('_fbOk = true;');
       window.eval(SYNC);
-      await new Promise(r => setTimeout(r, 300));
+      await esperarAte(() => window.eval('_fbSynced') && store.spaei.escalaSemanas[kP]['222222'][2] === 'DISPENSA' && !window.eval('!!_pendentes.escalaSemanas'));
       const s = store.spaei.escalaSemanas[kP];
       checar('10.4 — marcação feita offline chega ao servidor ao reconectar', s['222222'][2] === 'DISPENSA', JSON.stringify(s['222222']));
       checar('10.5 — alteração do ADM em outro dia da mesma linha preservada', s['222222'][4] === 'FOLGA');
