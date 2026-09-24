@@ -428,6 +428,29 @@ async function main() {
     }
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 11 — Integração SEI DIGITAL COE ↔ SPAEI (v6.89): status
+  // 'Finalizado'/'Baixado' do SEI apareciam como EM ANDAMENTO; movimentação
+  // pelo SPAEI gravava 'Concluído' (inexistente no SEI) e SUBSTITUÍA as
+  // observações acumuladas do SEI em vez de acrescentar.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const esperarAte = async (cond, max = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < max) { try { if (cond()) return true; } catch (e) {} await new Promise(r => setTimeout(r, 25)); } return false; };
+    store['sei-digital'] = { processos: { X1: { numero:'SEI-1', status:'Em Andamento', observacoes:'Despacho antigo - 01/09/2026', historico:[{data:'01/09/2026 10:00',por:'Sistema',texto:'criado'}], spaeiSync:true } } };
+    store['spaei-digital'] = { 'sei-processos': { X1: { numero:'SEI-1', status:'Em Andamento', observacoes:'Despacho antigo - 01/09/2026' }, X2: { numero:'SEI-2', status:'Baixado' } } };
+    window.eval(`Auth.user={rg:'ADM001',nome:'Admin Teste',posto:'CAP',admin:true}; _fbOk=true; _fbSynced=true; DB._listenRealtime(); _fbOk=true;`);
+    await esperarAte(() => window.eval(`(getSeiProcs()||[]).length`) === 2);
+    checar('11.1 — "Baixado"/"Finalizado" do SEI chegam como CONCLUÍDO', window.eval(`getSeiProcs().find(p=>p.id==='SEI-X2').status`) === 'CONCLUÍDO' && window.eval(`_mapStatus('Finalizado')`) === 'CONCLUÍDO');
+    window.eval(`Nav.go('processos'); Render._pushMovSei('SEI-X1','CONCLUÍDO','Remetido a DOr');`);
+    await esperarAte(() => store['spaei-digital']['sei-processos'].X1.status === 'Finalizado');
+    const b = store['sei-digital'].processos.X1, e = store['spaei-digital']['sei-processos'].X1;
+    checar('11.2 — SEI recebe status válido ("Finalizado")', b.status === 'Finalizado', b.status);
+    checar('11.3 — observação acrescentada, despacho antigo preservado', /^Despacho antigo - 01\/09\/2026 - Remetido a DOr - /.test(b.observacoes || '') && e.observacoes === b.observacoes, b.observacoes);
+    checar('11.4 — histórico do SEI registra a movimentação', Array.isArray(b.historico) && b.historico.length === 2 && /Remetido a DOr/.test(b.historico[1].texto));
+    checar('11.5 — zero erro JS não tratado', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
