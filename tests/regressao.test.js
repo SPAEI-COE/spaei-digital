@@ -451,6 +451,176 @@ async function main() {
     checar('11.5 — zero erro JS não tratado', errosJs.length === 0, errosJs.join(' | '));
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 12 — Arquivo permanente de escalas + relatório de semanas
+  // anteriores (v6.90). Antes: relatório só lia a semana exibida; semana
+  // passada era recalculada com efetivo/afastamentos de HOJE; afastamento
+  // fora de ±10 semanas deixava de ser aplicado.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const esperarAte = async (cond, max = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < max) { try { if (cond()) return true; } catch (e) {} await new Promise(r => setTimeout(r, 25)); } return false; };
+    const K = (off) => window.eval(`chaveDeData(calcSemana(${off})[0].jsDate)`);
+    const k1 = K(-1), k2 = K(-2), k3 = K(-3), kAtual = K(0), kFut = K(2);
+
+    // 12.1 — chave ISO ↔ datas: ida e volta para todas as semanas de 2026/2027; inválidas rejeitadas
+    {
+      const r = window.eval(`(()=>{ let ruim=[]; for(const ano of [2026,2027]){ for(let w=1;w<=53;w++){ const k=ano+'-W'+String(w).padStart(2,'0'); const d=Arquivo.dias(k); if(d){ if(chaveDeData(d[0].jsDate)!==k||d[0].lbl!=='SEG'||d[6].lbl!=='DOM') ruim.push(k); } else if(!(ano===2027&&w===53)) ruim.push('null:'+k); } } return JSON.stringify({ruim,w00:Arquivo.dias('2026-W00'),w54:Arquivo.dias('2026-W54'),lixo:Arquivo.dias('abc'),w53_2027:Arquivo.dias('2027-W53')}); })()`);
+      const o = JSON.parse(r);
+      checar('12.1 — Arquivo.dias confere com chaveDeData em 2026/2027; W00/W54/lixo/2027-W53 rejeitados', o.ruim.length === 0 && o.w00 === null && o.w54 === null && o.lixo === null && o.w53_2027 === null, r);
+    }
+
+    // 12.2 — _diasDaSemana: igual ao método antigo dentro de ±10 semanas e agora funciona além disso
+    {
+      const r = window.eval(`(()=>{ let dif=0; for(let off=-10;off<=10;off++){ const a=Afast._diasDaSemana(chaveDeData(calcSemana(off)[0].jsDate)); const b=calcSemana(off); if(!a||a[0].jsDate.toDateString()!==b[0].jsDate.toDateString()||a[6].jsDate.toDateString()!==b[6].jsDate.toDateString()) dif++; } const longe=Afast._diasDaSemana(chaveDeData(calcSemana(-40)[0].jsDate)); return JSON.stringify({dif,longe:!!longe}); })()`);
+      checar('12.2 — _diasDaSemana idêntico ao antigo em ±10 semanas e válido a 40 semanas atrás', JSON.parse(r).dif === 0 && JSON.parse(r).longe === true, r);
+    }
+
+    // preparação: ADM, efetivo, escala de 3 semanas passadas + atual + futura
+    const ontem = window.eval(`(()=>{ const d=calcSemana(-2); return d[0].dataStr+'|'+d[4].dataStr+'|'+d[6].dataStr; })()`).split('|');
+    window.eval(`
+      Auth.user = { rg:'ADM001', nome:'Admin Teste', posto:'CAP', admin:true };
+      DB.set('efetivo', [
+        {rg:'111111', nome:'Fulano de Tal', posto:'SD', chefe:false},
+        {rg:'222222', nome:'Beltrano', posto:'CB', chefe:false},
+        {rg:'333333', nome:'=HYPERLINK("x")', posto:'SGT', chefe:false},
+      ], 'seed');
+      const L=['SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','FOLGA','FOLGA'];
+      const esc={};
+      ['${k1}','${k2}','${k3}','${kAtual}','${kFut}'].forEach(k=>{ esc[k]={'111111':[...L],'222222':[...L],'333333':[...L]}; });
+      esc['${k3}']['999999']=[...L]; // militar que depois saiu do efetivo
+      DB.set('escalaSemanas', esc, 'seed', {inteiro:true});
+      // férias JÁ ENCERRADAS do 222222 cobrindo SEG-QUI de k2 (arquivadas em afastHist)
+      const dk2=Arquivo.dias('${k2}');
+      DB.set('afastHist', {'222222':[{tipo:'FERIAS',dataIni:dk2[0].dataStr,dataFim:dk2[3].dataStr,arquivadoEm:dk2[6].dataStr}]}, 'seed', {inteiro:true});
+      // afastamento SEM data fim, arquivado em SEX de k3 (substituído) — não pode vazar para depois
+      const dk3=Arquivo.dias('${k3}');
+      DB.set('afastHist', Object.assign({}, DB.get('afastHist'), {'111111':[{tipo:'LICENCA',dataIni:dk3[0].dataStr,dataFim:'',arquivadoEm:dk3[4].dataStr}]}), 'seed', {inteiro:true});
+      _fbOk=true; _fbSynced=true;
+    `);
+    await new Promise(r => setTimeout(r, 60));
+    const linhaDe = (chave, rg) => JSON.parse(window.eval(`JSON.stringify(Arquivo.dadosSemana('${chave}').rows.find(r=>r[1]==='${rg}'))`));
+
+    // 12.3 — reconstituição: férias já encerradas (afastHist) aparecem na semana passada
+    {
+      const l = linhaDe(k2, '222222');
+      checar('12.3 — semana passada reconstituída mostra FÉRIAS já encerradas (SEG-QUI) e SERVIÇO depois', l.slice(3,7).every(x => x === 'FÉRIAS') && l[7] === 'SERVIÇO' && l[8] === 'FOLGA', JSON.stringify(l));
+    }
+    // 12.4 — afastamento sem data fim arquivado não vaza além da data de arquivamento nem para outras semanas
+    {
+      const a = linhaDe(k3, '111111'), b = linhaDe(k2, '111111');
+      checar('12.4 — LICENÇA sem fim, arquivada na SEX, vale SEG-SEX da sua semana e NÃO vaza para a semana seguinte', a.slice(3,8).every(x => x === 'LICENÇA') && a[8] === 'FOLGA' && b.slice(3).every(x => x !== 'LICENÇA'), JSON.stringify([a, b]));
+    }
+    // 12.5 — militar que consta na escala mas saiu do efetivo continua no relatório da época
+    {
+      const nomes = JSON.parse(window.eval(`JSON.stringify(Arquivo.dadosSemana('${k3}').rows.map(r=>r[2]))`));
+      checar('12.5 — RG fora do efetivo atual aparece marcado no relatório da semana', nomes.some(n => /fora do efetivo atual.*999999/.test(n)), JSON.stringify(nomes));
+    }
+
+    // 12.6 — congelar grava no servidor, escreve-uma-vez, e a foto não muda quando a escala muda depois
+    {
+      const ok1 = await window.eval(`Arquivo.congelar('${k2}')`);
+      const snap1 = JSON.stringify(store.spaei.escalaArquivo && store.spaei.escalaArquivo[k2]);
+      window.eval(`Escala.setStatus('222222', 6, 'DISPENSA');`); // muda DOM da semana ATUAL, não a k2 — mexe também na k2 abaixo
+      window.eval(`DB.setCelulaEscala('${k2}','111111',0,'DISPENSA',defaultStatusSemana(false),'edicao tardia');`);
+      await new Promise(r => setTimeout(r, 80));
+      const ok2 = await window.eval(`Arquivo.congelar('${k2}')`);
+      const snap2 = JSON.stringify(store.spaei.escalaArquivo[k2]);
+      const l = linhaDe(k2, '111111');
+      checar('12.6 — congelar grava a semana; 2ª chamada NÃO sobrescreve; relatório usa a foto, não a edição tardia', ok1 === true && ok2 === false && snap1 === snap2 && l[3] === 'SERVIÇO', JSON.stringify({ ok1, ok2, l }));
+      const origem = JSON.parse(snap1);
+      checar('12.7 — foto contém linhas, rótulo, datas, versão e nenhum undefined', Array.isArray(origem.linhas) && origem.linhas.length === 3 && origem.versao === window.eval('APP_VERSAO') && /^\d{2}\/\d{2}\/\d{4}$/.test(origem.de) && !/undefined/.test(snap1), snap1.slice(0, 120));
+    }
+    // 12.8 — roster mudou depois: relatório da semana arquivada ainda lista quem estava
+    {
+      window.eval(`DB.set('efetivo', DB.get('efetivo').filter(m=>m.rg!=='222222'), 'saiu', {inteiro:true});`);
+      const nomes = JSON.parse(window.eval(`JSON.stringify(Arquivo.dadosSemana('${k2}').rows.map(r=>r[1]))`));
+      checar('12.8 — militar que saiu do efetivo continua no relatório da semana arquivada', nomes.includes('222222'), JSON.stringify(nomes));
+      window.eval(`DB.set('efetivo', DB.get('efetivo').concat([{rg:'222222', nome:'Beltrano', posto:'CB', chefe:false}]), 'volta', {inteiro:true});`);
+    }
+    // 12.9 — varredura: congela só encerradas e plausíveis; ignora atual, futura e ano implausível
+    {
+      window.eval(`const e=DB.get('escalaSemanas'); e['2019-W10']={'111111':['SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','FOLGA','FOLGA']}; e['lixo']={}; _mem.escalaSemanas=e; Arquivo._varrEm=0;`);
+      const n = await window.eval(`Arquivo.congelarEncerradas(true)`);
+      const ks = Object.keys(store.spaei.escalaArquivo || {}).sort();
+      checar('12.9 — varredura arquiva k3 e k1 (k2 já estava) e NÃO arquiva semana atual, futura, 2019 nem chave inválida', n === 2 && ks.length === 3 && ks.includes(k1) && ks.includes(k2) && ks.includes(k3), JSON.stringify({ n, ks }));
+    }
+    // 12.10 — membro comum e Modo TV nunca gravam no arquivo
+    {
+      const antes = JSON.stringify(store.spaei.escalaArquivo);
+      window.eval(`Auth.user={rg:'111111',nome:'Fulano',posto:'SD',admin:false};`);
+      const r1 = await window.eval(`Arquivo.congelar('${kAtual}')`);
+      window.eval(`Auth.user={rg:'ADM001',nome:'Admin Teste',posto:'CAP',admin:true};`);
+      const r2 = await window.eval(`(async()=>{ const orig=_tvBlock; _tvBlock=()=>true; try{ return await Arquivo.congelar('${kAtual}'); } finally { _tvBlock=orig; } })()`);
+      checar('12.10 — membro comum e Modo TV não gravam no arquivo', r1 === false && r2 === false && antes === JSON.stringify(store.spaei.escalaArquivo), JSON.stringify({ r1, r2 }));
+    }
+    // 12.11 — card: lista semanas, seleção sobrevive a redesenho, botões de ADM só para ADM
+    {
+      window.eval(`Nav.go('relatorios');`);
+      await new Promise(r => setTimeout(r, 120));
+      window.eval(`Arquivo._sel.semana='${k3}'; Render.relatorios();`);
+      const sel = window.eval(`(()=>{ const s=document.querySelector('#rel-arquivo-escalas select'); return s?s.value:null; })()`);
+      const temAdm = window.eval(`/Backup das escalas/.test(document.getElementById('s-relatorios').innerHTML)`);
+      window.eval(`Auth.user={rg:'111111',nome:'Fulano',posto:'SD',admin:false}; Render.relatorios();`);
+      const semAdm = window.eval(`!/Backup das escalas/.test(document.getElementById('s-relatorios').innerHTML) && !!document.getElementById('rel-arquivo-escalas')`);
+      window.eval(`Auth.user={rg:'ADM001',nome:'Admin Teste',posto:'CAP',admin:true};`);
+      checar('12.11 — card mostra semana escolhida após redesenho; botões de backup só p/ ADM; membro vê o relatório', sel === k3 && temAdm && semAdm, JSON.stringify({ sel, temAdm, semAdm }));
+    }
+    // 12.12 — PDF: 1 semana = 1 folha com nota de fonte; período = N folhas, botão de imprimir 1x; relatório antigo segue 1 folha
+    {
+      const cap = [];
+      window.open = () => ({ document: { write: (h) => cap.push(h), close() {} } });
+      window.eval(`Arquivo._sel.semana='${k2}'; Arquivo.gerar('PDF');`);
+      const h1 = cap.pop();
+      window.eval(`Arquivo._sel.de='${k3}'; Arquivo._sel.ate='${k1}'; Arquivo.gerarPeriodo('PDF');`);
+      const h2 = cap.pop();
+      window.eval(`Render._gerarRel('processos','PDF');`);
+      const h3 = cap.pop();
+      const n = (h, re) => (h.match(re) || []).length;
+      checar('12.12 — PDF de 1 semana: 1 folha, nota "arquivo permanente", 1 botão', n(h1, /class="folha"/g) === 1 && /arquivo permanente/.test(h1) && n(h1, /Imprimir \/ Salvar como PDF/g) === 1, `${n(h1, /class="folha"/g)} folhas`);
+      checar('12.13 — PDF do período k3→k1: 3 folhas, botão só na última', n(h2, /class="folha"/g) === 3 && n(h2, /Imprimir \/ Salvar como PDF/g) === 1 && /break-before:page/.test(h2), `${n(h2, /class="folha"/g)} folhas`);
+      checar('12.14 — relatório antigo (Processos) continua com 1 folha e 1 botão (sem regressão do _pdfWindow)', !!h3 && n(h3, /class="folha"/g) === 1 && n(h3, /Imprimir \/ Salvar como PDF/g) === 1);
+      checar('12.15 — nome com fórmula (=HYPERLINK) sai escapado no HTML do PDF', !/<td>=HYPERLINK\("x"\)/.test(h1) && /&quot;x&quot;|=HYPERLINK/.test(h1));
+    }
+    // 12.16 — CSV: cabeçalho, injeção de fórmula neutralizada; período concatena semanas
+    {
+      const baixados = [];
+      window.eval(`Arquivo._baixar=(c,m,n)=>{ window.__dl=window.__dl||[]; window.__dl.push({c,m,n}); };`);
+      window.eval(`Arquivo._sel.semana='${k2}'; Arquivo.gerar('CSV'); Arquivo._sel.de='${k3}'; Arquivo._sel.ate='${k1}'; Arquivo.gerarPeriodo('CSV');`);
+      const dl = window.__dl;
+      const c1 = dl[0].c, c2 = dl[1].c;
+      checar('12.16 — CSV da semana: cabeçalho, arquivo com a chave, fórmula neutralizada', /^\ufeff"POSTO","RG","NOME","SEMANA"/.test(c1) && dl[0].n === `SPAEI_Escala_${k2}.csv` && /"'=HYPERLINK/.test(c1) && !/,"=HYPERLINK/.test(c1), c1.slice(0, 90));
+      checar('12.17 — CSV do período: linhas de 3 semanas (3 militares × 3 + RG saído) ', c2.trim().split('\n').length >= 1 + 3 * 3, `${c2.trim().split('\n').length} linhas`);
+    }
+    // 12.18 — backup das escalas: formato compatível com restauração, só chaves de FB_KEYS em "dados", legível
+    {
+      window.eval(`Arquivo._baixar=(c,m,n)=>{ window.__bk={c,m,n}; };`);
+      await window.eval(`Arquivo.baixarBackup()`);
+      const bk = JSON.parse(window.__bk.c);
+      const chaves = Object.keys(bk.dados);
+      const fbKeys = JSON.parse(window.eval(`JSON.stringify(FB_KEYS)`));
+      checar('12.18 — backup das escalas: dados só com chaves restauráveis (FB_KEYS), inclui arquivo+escala+envios', chaves.length >= 2 && chaves.every(k => fbKeys.includes(k)) && chaves.includes('escalaArquivo') && chaves.includes('escalaSemanas') && /^SPAEI_Backup_Escalas_.*\.json$/.test(window.__bk.n), JSON.stringify(chaves));
+      checar('12.19 — backup traz versão legível (semanasLegiveis) e _referencia fora de FB_KEYS', Array.isArray(bk._referencia.semanasLegiveis) && bk._referencia.semanasLegiveis.length >= 3 && !fbKeys.includes('_referencia'));
+    }
+    // 12.20 — backup geral (manual/automático) já inclui o arquivo; restauração grava de volta
+    {
+      const snap = JSON.parse(await window.eval(`Backup._gerarSnapshot().then(s=>JSON.stringify(s))`));
+      checar('12.20 — Backup._gerarSnapshot inclui escalaArquivo (FB_KEYS)', !!snap.dados.escalaArquivo && !!snap.dados.escalaArquivo[k2]);
+      delete store.spaei.escalaArquivo;
+      await window.eval(`Backup.restaurar(${JSON.stringify(snap)}).then(n=>n)`);
+      await esperarAte(() => store.spaei.escalaArquivo && store.spaei.escalaArquivo[k2]);
+      checar('12.21 — restauração recoloca o arquivo de escalas no banco', !!(store.spaei.escalaArquivo && store.spaei.escalaArquivo[k2] && store.spaei.escalaArquivo[k3]));
+    }
+    // 12.22 — sincronizar traz semana arquivada por OUTRO aparelho sem apagar o local
+    {
+      store.spaei.escalaArquivo['2026-W20'] = { chave:'2026-W20', label:'x', linhas:[{rg:'1',posto:'SD',nome:'Remoto',funcao:'',chefe:false,foraEfetivo:false,st:['SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','SERVIÇO','FOLGA','FOLGA']}], congeladoEm:new Date().toISOString(), origem:'automatico', versao:'6.90', de:'11/05/2026', ate:'17/05/2026' };
+      const mudou = await window.eval(`Arquivo.sincronizar(true)`);
+      const tem = window.eval(`!!(DB.get('escalaArquivo')['2026-W20'] && DB.get('escalaArquivo')['${k2}'])`);
+      checar('12.22 — sincronizar soma a semana remota e preserva as locais', mudou === true && tem === true);
+    }
+    checar('12.23 — zero erro JS não tratado no grupo 12', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
