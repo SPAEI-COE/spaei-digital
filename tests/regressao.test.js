@@ -618,6 +618,20 @@ async function main() {
       const tem = window.eval(`!!(DB.get('escalaArquivo')['2026-W20'] && DB.get('escalaArquivo')['${k2}'])`);
       checar('12.22 — sincronizar soma a semana remota e preserva as locais', mudou === true && tem === true);
     }
+    // 12.24 — seletores do card usam a classe do app (tema) e o período aparece ESCRITO (v6.91)
+    {
+      window.eval(`Auth.user={rg:'ADM001',nome:'Admin Teste',posto:'CAP',admin:true}; Arquivo._sel.de='${k3}'; Arquivo._sel.ate='${k1}'; Nav.go('relatorios'); Render.relatorios();`);
+      await new Promise(r => setTimeout(r, 100));
+      const r = JSON.parse(window.eval(`JSON.stringify({
+        sels:[...document.querySelectorAll('#rel-arquivo-escalas select')].map(s=>({cls:s.className,style:s.getAttribute('style')||''})),
+        resumo:(document.getElementById('arq-resumo')||{}).textContent||'',
+        rotulos:/>DE</.test(document.getElementById('rel-arquivo-escalas').innerHTML)&&/>ATÉ</.test(document.getElementById('rel-arquivo-escalas').innerHTML)})`));
+      checar('12.24 — 3 seletores com classe form-sel (tema), sem cor inventada; rótulos DE/ATÉ', r.sels.length === 3 && r.sels.every(x => /form-sel/.test(x.cls) && !/--surface|background/.test(x.style)) && r.rotulos, JSON.stringify(r.sels));
+      checar('12.25 — período escrito por extenso com nº de semanas', /^📅 Período: .+ até .+ · 3 semana\(s\)$/.test(r.resumo), r.resumo);
+      window.eval(`Arquivo._sel.de='${k1}'; Arquivo._sel.ate='${k3}'; Arquivo._atualizaResumo();`);
+      const inv = window.eval(`document.getElementById('arq-resumo').textContent`);
+      checar('12.26 — De/Até invertidos: texto avisa e o resumo atualiza ao trocar', /3 semana\(s\) \(De\/Até invertidos/.test(inv), inv);
+    }
     checar('12.23 — zero erro JS não tratado no grupo 12', errosJs.length === 0, errosJs.join(' | '));
   }
 
