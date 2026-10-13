@@ -635,6 +635,39 @@ async function main() {
     checar('12.23 — zero erro JS não tratado no grupo 12', errosJs.length === 0, errosJs.join(' | '));
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 13 — Vínculo SEI DIGITAL COE → SPAEI (v6.92). Antes: o listener
+  // de /spaei-digital/sei-processos não tinha callback de erro — se o
+  // Firebase o cancelasse (ex.: permission_denied) ele morria PARA SEMPRE
+  // e os processos do SEI paravam de chegar sem nenhum aviso na tela.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const esperarAte = async (cond, max = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < max) { try { if (cond()) return true; } catch (e) {} await new Promise(r => setTimeout(r, 25)); } return false; };
+    store['spaei-digital'] = { 'sei-processos': {
+      A1: { numero:'SEI-1', descricao:'Processo A', status:'Em Andamento', urgencia:'Alta', responsaveis:['SGT Gumiero','SGT Thiago'], atualizadoEm:1790000000000 },
+      A2: { numero:'SEI-2', descricao:'Processo B', status:'Finalizado', responsaveis:{ '0':'SGT Aleixo', '2':'CAP Flávio' }, atualizadoEm:1791000000000 },
+      A3: { numero:'SEI-3', descricao:'Processo C', status:'Aguardando' },
+    } };
+    window.eval(`Auth.user={rg:'ADM001',nome:'Admin Teste',posto:'CAP',admin:true}; _fbOk=true; _fbSynced=true; DB._listenRealtime(); _fbOk=true;`);
+    await esperarAte(() => window.eval(`getSeiProcs().length`) === 3);
+    const st = JSON.parse(window.eval(`JSON.stringify(_seiLink)`));
+    checar('13.1 — vínculo registra qtd recebida, último envio e zero erro', st.recebidos === 3 && st.ultimoEnvio === 1791000000000 && st.erro === null, JSON.stringify(st));
+    const resp = window.eval(`getSeiProcs().map(p=>p.resp).join(' | ')`);
+    checar('13.2 — responsáveis em formato array E objeto esparso (RTDB) não quebram o listener', resp === 'SGT Gumiero, SGT Thiago | SGT Aleixo, CAP Flávio | —', resp);
+    window.eval(`Nav.go('processos'); Render.processos();`);
+    const linha = window.eval(`document.getElementById('s-processos').textContent`);
+    checar('13.3 — tela de Processos mostra a linha de status do vínculo', /Vínculo SEI DIGITAL: 3 processo\(s\) recebido\(s\)/.test(linha), linha.slice(0, 160));
+    window.eval(`_seiLinkFalhou({code:'PERMISSION_DENIED'}); clearTimeout(_seiLinkRetry);`);
+    const aviso = window.eval(`document.getElementById('s-processos').textContent`);
+    checar('13.4 — listener cancelado (permission_denied) mostra AVISO na tela de Processos', /Vínculo com o SEI DIGITAL COE indisponível \(PERMISSION_DENIED\)/.test(aviso), aviso.slice(0, 160));
+    window.eval(`_listenSeiProcessos(); Render.processos();`);
+    await esperarAte(() => window.eval(`_seiLink.erro`) === null);
+    const ok = window.eval(`document.getElementById('s-processos').textContent`);
+    checar('13.5 — reanexar o listener limpa o aviso e volta a mostrar o status', window.eval(`_seiLink.erro`) === null && !/indisponível/.test(ok) && /3 processo\(s\) recebido\(s\)/.test(ok));
+    checar('13.6 — zero erro JS não tratado no grupo 13', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
