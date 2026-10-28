@@ -668,6 +668,46 @@ async function main() {
     checar('13.6 — zero erro JS não tratado no grupo 13', errosJs.length === 0, errosJs.join(' | '));
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 14 — Sync SEI↔SPAEI (v6.93): notificação reivindicada por transação
+  // (2+ aparelhos não enviam em dobro), execuções coalescidas, render coalescido
+  // e movimentação que chega à base do SEI mesmo SEM cache local.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const esperarAte = async (cond, max = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < max) { try { if (cond()) return true; } catch (e) {} await new Promise(r => setTimeout(r, 25)); } return false; };
+    window.eval(`Auth.user={rg:'ADM001',nome:'Admin Teste',posto:'CAP',admin:true}; _fbOk=true; _fbSynced=true;`);
+    const a = await window.eval(`_reivindicarNotif('spaei/teste/k1','ST1')`);
+    const b = await window.eval(`_reivindicarNotif('spaei/teste/k1','ST1')`);
+    const c = await window.eval(`_reivindicarNotif('spaei/teste/k1','ST2')`);
+    checar('14.1 — reivindicação: 1º aparelho leva, 2º (mesmo estado) não, novo estado leva', a === true && b === false && c === true, [a, b, c].join(','));
+    // 5 aparelhos "simultâneos" reivindicando a mesma notificação: só 1 vence
+    const rs = await Promise.all([1, 2, 3, 4, 5].map(() => window.eval(`_reivindicarNotif('spaei/teste/k2','X')`)));
+    checar('14.2 — 5 reivindicações simultâneas: exatamente 1 vence', rs.filter(Boolean).length === 1, rs.join(','));
+    // coalescência: rajada de chamadas → uma única mensagem
+    store.spaei = store.spaei || {};
+    store.spaei.telegramVinculos = { '111111': { chatId: 1 } };
+    window.eval(`
+      DB.set('efetivo',[{rg:'111111',nome:'Fulano Gumiero',posto:'SGT',chefe:false}],'seed');
+      _mem['sei_processos']=[{id:'SEI-P1',numero:'S1',assunto:'a',resp:'SGT Gumiero',status:'EM ANDAMENTO',prazo:'—'}];
+      window.__env=0; _telegramNotificar=function(){ window.__env++; };
+    `);
+    await Promise.all([1, 2, 3, 4, 5, 6].map(() => window.eval(`_sincronizarNotificacoesProcessos()`)));
+    await new Promise(r => setTimeout(r, 100));
+    const env = window.eval(`window.__env`);
+    checar('14.3 — rajada de 6 chamadas gera 1 única notificação', env === 1, env);
+    window.eval(`window.__env=0`);
+    await window.eval(`_sincronizarNotificacoesProcessos()`);
+    checar('14.4 — mesmo estado de novo: não reenvia', window.eval(`window.__env`) === 0);
+    // render coalescido
+    window.eval(`window.__r=0; Nav.go('processos'); Render.processos=function(){window.__r++;};`);
+    await new Promise(r => setTimeout(r, 120));
+    window.eval(`window.__r=0; for(let i=0;i<10;i++) _renderSeiAgendado();`);
+    await new Promise(r => setTimeout(r, 200));
+    checar('14.5 — 10 eventos seguidos do listener = 1 render', window.eval(`window.__r`) === 1, window.eval(`window.__r`));
+    checar('14.6 — zero erro JS não tratado no grupo 14', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
