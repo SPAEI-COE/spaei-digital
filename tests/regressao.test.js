@@ -764,8 +764,8 @@ async function main() {
     // relatórios
     const nom = window.eval(`JSON.stringify(Ferias._dadosRel('nominal'))`), resumo = window.eval(`JSON.stringify(Ferias._dadosRel('resumo'))`), mensal = window.eval(`JSON.stringify(Ferias._dadosRel('mensal'))`);
     const rn = JSON.parse(nom), rr = JSON.parse(resumo), rm = JSON.parse(mensal);
-    checar('15.12 — relação nominal tem os 2 períodos com dias corretos', rn.rows.length === 2 && rn.rows.some(r => r[6] === 15) && rn.rows.some(r => r[6] === 10), JSON.stringify(rn.rows.map(r => r.slice(1, 7))));
-    checar('15.13 — resumo por militar: saldo e "Sem marcação"', rr.rows.length === 4 && rr.rows.find(r => r[1] === 'Fulano Alfa')[6] === 15 && rr.rows.filter(r => r[7] === 'Sem marcação').length === 2);
+    checar('15.12 — relação nominal tem os 2 períodos com dias corretos', rn.rows.length === 2 && rn.rows.some(r => r[7] === 15) && rn.rows.some(r => r[7] === 10) && rn.rows.every(r => r[4] === 2026), JSON.stringify(rn.rows.map(r => r.slice(1, 8))));
+    checar('15.13 — resumo por militar: saldo e "Sem marcação"', rr.rows.filter(r => r[4] === 2026).length === 4 && rr.rows.find(r => r[1] === 'Fulano Alfa' && r[4] === 2026)[7] === 15 && rr.rows.filter(r => r[4] === 2026 && r[9] === 'Sem marcação').length === 2, JSON.stringify(rr.rows.slice(0, 2)));
     checar('15.14 — mensal: novembro com 2 militares e pico simultâneo 2', rm.rows[10][1] === 2 && rm.rows[10][3] === 2 && rm.rows[10][2] === 25, JSON.stringify(rm.rows[10]));
     // exclusão
     window.eval(`Auth.user={rg:'111111',nome:'Fulano Alfa',posto:'SGT',admin:false}; window.confirm=()=>true;`);
@@ -777,6 +777,35 @@ async function main() {
     window.eval(`Auth.user={rg:'333333',nome:'x',posto:'SD',admin:false}; Ferias.abrirModal(); document.getElementById('fx-dias').value='5'; Ferias._sugerir();`);
     const ini = window.eval(`document.getElementById('fx-ini').value`);
     checar('15.16 — sugestão preenche início com janela de menor concentração', /^\d{4}-\d{2}-\d{2}$/.test(ini) && window.eval(`document.getElementById('fx-fim').value`) !== '', ini);
+    // ── ano de referência (exercício) ≠ ano de gozo ──
+    window.eval(`Auth.user={rg:'333333',nome:'Ciclano Gama',posto:'SD',admin:false}; DB.set('ferias',{},'x');`);
+    window.eval(`Ferias.abrirModal(); document.getElementById('fx-ini').value='2027-01-11'; document.getElementById('fx-dias').value='15'; Ferias._calc('dias');`);
+    checar('15.18 — sem histórico, exercício sugerido = ano atual (limite: não pode ser posterior ao ano corrente)', window.eval(`document.getElementById('fx-ref').value`) === String(window.eval(`Ferias.hojeAno()`)), window.eval(`document.getElementById('fx-ref').value`));
+    // 15 dias do exercício 2026 gozados em 2027
+    window.eval(`document.getElementById('fx-ref').value='2026'; Ferias._refManual(); Ferias.salvar();`);
+    await espera(120);
+    let pp = Object.values(store.spaei.ferias['333333'])[0];
+    checar('15.19 — grava ref=2026 em período gozado em 2027', pp.ref === 2026 && pp.ini === '2027-01-11', JSON.stringify(pp));
+    checar('15.20 — saldo do exercício 2026 = 15 dias marcados (de 30)', window.eval(`Ferias._diasRef('333333',2026)`) === 15 && window.eval(`Ferias._diasRef('333333',2027)`) === 0);
+    // exercício 2026 iniciado e incompleto → próxima marcação sugere 2026 (mesmo gozada em 2027, a menos que seja de 2027)
+    window.eval(`Ferias.abrirModal(); document.getElementById('fx-ini').value='2027-06-07'; document.getElementById('fx-dias').value='15'; Ferias._calc('dias');`);
+    checar('15.21 — exercício anterior incompleto é sugerido para completar', window.eval(`document.getElementById('fx-ref').value`) === '2026', window.eval(`document.getElementById('fx-ref').value`));
+    checar('15.22 — pré-visualização mostra saldo do exercício e gozo em ano posterior', /Exercício 2026/.test(window.eval(`document.getElementById('fx-prev').textContent`)) && /30\/30/.test(window.eval(`document.getElementById('fx-prev').textContent`)));
+    window.eval(`Ferias.salvar();`);
+    await espera(120);
+    checar('15.23 — exercício 2026 fecha em 30/30 com 2 períodos gozados em 2027', window.eval(`Ferias._diasRef('333333',2026)`) === 30 && Object.keys(store.spaei.ferias['333333']).length === 2);
+    // referência posterior ao ano de início é recusada
+    window.eval(`Ferias.abrirModal(); document.getElementById('fx-ini').value='2026-11-30'; document.getElementById('fx-dias').value='3'; Ferias._calc('dias'); document.getElementById('fx-ref').value='2027'; document.getElementById('fx-ref').value; Ferias.salvar();`);
+    await espera(60);
+    checar('15.24 — referência > ano de início não é aceita', Object.keys(store.spaei.ferias['333333']).length === 2);
+    // relatório de saldo por exercício e filtro
+    const rs = JSON.parse(window.eval(`Ferias.ano=2027; JSON.stringify(Ferias._dadosRel('resumo'))`));
+    const lc = rs.rows.find(r => r[2] === '333333' && r[4] === 2026);
+    checar('15.25 — relatório "Saldo por exercício": 30/30, saldo 0, gozo em 2027, Completo', lc && lc[6] === 30 && lc[7] === 0 && lc[8] === '2027' && lc[9] === 'Completo', JSON.stringify(lc));
+    window.eval(`Ferias.setRef('2025'); Ferias.ano=2027;`);
+    checar('15.26 — filtro de exercício esvazia a relação nominal quando não há período dessa referência', JSON.parse(window.eval(`JSON.stringify(Ferias._dadosRel('nominal'))`)).rows.length === 0);
+    window.eval(`Ferias.setRef(''); Ferias.render();`);
+    checar('15.27 — "Minhas férias" mostra o exercício 2026 completo', /Ref\. 2026/.test(window.eval(`document.getElementById('s-ferias').textContent`)) && /30\/30/.test(window.eval(`document.getElementById('s-ferias').textContent`)));
     checar('15.17 — zero erro JS não tratado no grupo 15', errosJs.length === 0, errosJs.join(' | '));
   }
 
