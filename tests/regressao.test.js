@@ -708,6 +708,78 @@ async function main() {
     checar('14.6 — zero erro JS não tratado no grupo 14', errosJs.length === 0, errosJs.join(' | '));
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 15 — Painel de Férias (v6.94): marcação pelo próprio policial,
+  // dias calculados, sobreposição, gravação por RG, KPIs, relatórios.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    window.eval(`
+      DB.set('efetivo', [
+        {rg:'111111', nome:'Fulano Alfa', posto:'SGT', funcao:'PROJETOS', chefe:false, admin:false},
+        {rg:'222222', nome:'Beltrano Beta', posto:'CB', funcao:'PROJETOS', chefe:false, admin:false},
+        {rg:'333333', nome:'Ciclano Gama', posto:'SD', funcao:'OPERAÇÕES', chefe:false, admin:false},
+        {rg:'444444', nome:'Admin Delta', posto:'CAP', funcao:'CHEFIA', chefe:false, admin:true},
+      ], 'seed');
+      Auth.user = {rg:'111111', nome:'Fulano Alfa', posto:'SGT', admin:false};
+      _fbOk = true; _fbSynced = true;
+    `);
+    await espera(50);
+    // matemática de datas
+    checar('15.1 — dias = fim - início + 1 (inclusivo) e retorno no dia seguinte', window.eval(`Ferias.dias('2026-11-03','2026-11-17')`) === 15 && window.eval(`Ferias._iso(Ferias._n('2026-12-31')+1)`) === '2027-01-01');
+    checar('15.2 — data inválida (31/02) rejeitada', isNaN(window.eval(`Ferias._n('2026-02-31')`)));
+    // abre o modal, preenche início + dias, confere fim calculado
+    window.eval(`Nav.go('ferias'); Ferias.abrirModal();`);
+    window.eval(`document.getElementById('fx-ini').value='2026-11-03'; document.getElementById('fx-dias').value='15'; Ferias._calc('dias');`);
+    checar('15.3 — início + dias calcula o fim', window.eval(`document.getElementById('fx-fim').value`) === '2026-11-17', window.eval(`document.getElementById('fx-fim').value`));
+    window.eval(`document.getElementById('fx-fim').value='2026-11-10'; Ferias._calc('fim');`);
+    checar('15.4 — alterar o fim recalcula os dias', window.eval(`document.getElementById('fx-dias').value`) === '8');
+    window.eval(`document.getElementById('fx-fim').value='2026-11-17'; Ferias._calc('fim'); Ferias.salvar();`);
+    await espera(120);
+    const ramo = store.spaei && store.spaei.ferias && store.spaei.ferias['111111'];
+    const per = ramo && Object.values(ramo)[0];
+    checar('15.5 — grava só no ramo do próprio RG (spaei/ferias/RG/id)', !!per && per.ini === '2026-11-03' && per.fim === '2026-11-17' && per.dias === 15, JSON.stringify(per));
+    // sobreposição própria é bloqueada
+    window.eval(`Ferias.abrirModal(); document.getElementById('fx-ini').value='2026-11-10'; document.getElementById('fx-dias').value='5'; Ferias._calc('dias'); Ferias.salvar();`);
+    await espera(80);
+    checar('15.6 — período sobreposto ao próprio é recusado', Object.keys(store.spaei.ferias['111111']).length === 1);
+    // outro membro não consegue mexer nas férias alheias
+    window.eval(`Ferias.excluir('222222','x')`);
+    const podeOutro = window.eval(`Ferias.podeEditar('222222')`);
+    checar('15.7 — membro não edita férias de outro; admin edita', podeOutro === false && window.eval(`(Auth.user.admin=true, Ferias.podeEditar('222222'))`) === true);
+    window.eval(`Auth.user.admin=false;`);
+    // dois militares marcam: coincidência detectada e KPIs
+    window.eval(`Auth.user={rg:'222222',nome:'Beltrano Beta',posto:'CB',admin:false}; Ferias.abrirModal(); document.getElementById('fx-ini').value='2026-11-10'; document.getElementById('fx-dias').value='10'; Ferias._calc('dias');`);
+    const prev = window.eval(`document.getElementById('fx-prev').textContent`);
+    checar('15.8 — pré-visualização avisa colega em férias no mesmo intervalo', /Fulano Alfa/.test(prev), prev.slice(0, 160));
+    window.eval(`Ferias.salvar();`);
+    await espera(120);
+    checar('15.9 — ramos separados por RG (sem pisar um no outro)', !!store.spaei.ferias['222222'] && !!store.spaei.ferias['111111'] && Object.keys(store.spaei.ferias).length === 2);
+    // renderização completa sem erro e com conteúdo
+    window.eval(`Ferias.ano=2026; Ferias.render();`);
+    const html = window.eval(`document.getElementById('s-ferias').innerHTML`);
+    checar('15.10 — painel renderiza KPIs, mapa de calor e linha do tempo', /PAINEL DE FÉRIAS/.test(html) && /fx-hm-c/.test(html) && /fx-bar/.test(html) && /Fulano Alfa/.test(html));
+    checar('15.11 — XSS: nome/obs com HTML viram texto', (() => { window.eval(`DB.get('efetivo')[2].nome='<img src=x onerror=alert(1)>'; Ferias.render();`); const h = window.eval(`document.getElementById('s-ferias').innerHTML`); return !/<img src=x/.test(h); })());
+    // relatórios
+    const nom = window.eval(`JSON.stringify(Ferias._dadosRel('nominal'))`), resumo = window.eval(`JSON.stringify(Ferias._dadosRel('resumo'))`), mensal = window.eval(`JSON.stringify(Ferias._dadosRel('mensal'))`);
+    const rn = JSON.parse(nom), rr = JSON.parse(resumo), rm = JSON.parse(mensal);
+    checar('15.12 — relação nominal tem os 2 períodos com dias corretos', rn.rows.length === 2 && rn.rows.some(r => r[6] === 15) && rn.rows.some(r => r[6] === 10), JSON.stringify(rn.rows.map(r => r.slice(1, 7))));
+    checar('15.13 — resumo por militar: saldo e "Sem marcação"', rr.rows.length === 4 && rr.rows.find(r => r[1] === 'Fulano Alfa')[6] === 15 && rr.rows.filter(r => r[7] === 'Sem marcação').length === 2);
+    checar('15.14 — mensal: novembro com 2 militares e pico simultâneo 2', rm.rows[10][1] === 2 && rm.rows[10][3] === 2 && rm.rows[10][2] === 25, JSON.stringify(rm.rows[10]));
+    // exclusão
+    window.eval(`Auth.user={rg:'111111',nome:'Fulano Alfa',posto:'SGT',admin:false}; window.confirm=()=>true;`);
+    const idF = Object.keys(store.spaei.ferias['111111'])[0];
+    window.eval(`Ferias.excluir('111111','${idF}')`);
+    await espera(120);
+    checar('15.15 — excluir remove o ramo do RG no banco', !(store.spaei.ferias && store.spaei.ferias['111111']) && !!store.spaei.ferias['222222']);
+    // sugestão de melhor janela evita quem já está fora
+    window.eval(`Auth.user={rg:'333333',nome:'x',posto:'SD',admin:false}; Ferias.abrirModal(); document.getElementById('fx-dias').value='5'; Ferias._sugerir();`);
+    const ini = window.eval(`document.getElementById('fx-ini').value`);
+    checar('15.16 — sugestão preenche início com janela de menor concentração', /^\d{4}-\d{2}-\d{2}$/.test(ini) && window.eval(`document.getElementById('fx-fim').value`) !== '', ini);
+    checar('15.17 — zero erro JS não tratado no grupo 15', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
