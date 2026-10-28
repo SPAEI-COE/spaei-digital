@@ -809,6 +809,45 @@ async function main() {
     checar('15.17 — zero erro JS não tratado no grupo 15', errosJs.length === 0, errosJs.join(' | '));
   }
 
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 16 — Processos com VÁRIOS responsáveis (v6.96): cada pessoa conta os
+  // processos compartilhados (antes só contava onde era a única responsável).
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, errosJs } = await bootApp();
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    window.eval(`
+      DB.set('efetivo', [
+        {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', funcao:'PROJETOS', chefe:false, admin:false},
+        {rg:'90001', nome:'THIAGO SOUZA LIMA', posto:'SGT PM', funcao:'PROJETOS', chefe:false, admin:false},
+      ], 'seed');
+      DB.set('processos', [], 'seed');
+      Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:false};
+      _fbOk = true; _fbSynced = true;
+      const mk=(i,resp,st)=>({id:'SEI-p'+i,numero:'N'+i,assunto:'a'+i,resp,status:st||'EM ANDAMENTO',prazo:'—',prio:'MÉDIA'});
+      _mem['sei_processos']=[
+        mk(1,'SGT Gumiero'),mk(2,'SGT Gumiero'),mk(3,'SGT Gumiero','CONCLUÍDO'),
+        mk(4,'SGT Gumiero, SGT Thiago'),mk(5,'SGT Thiago, SGT Gumiero'),mk(6,'SGT Gumiero,SGT Thiago, SGT Gumiero'),
+        mk(7,'SGT Thiago'),mk(8,'')
+      ];
+    `);
+    await espera(50);
+    checar('16.1 — _respNomes separa por vírgula, tira espaços/duplicatas e vazio vira —', JSON.stringify(window.eval(`[_respNomes({resp:'SGT Gumiero, SGT Thiago'}),_respNomes({resp:'SGT Gumiero,SGT Thiago, SGT Gumiero'}),_respNomes({resp:''})]`)) === '[["SGT Gumiero","SGT Thiago"],["SGT Gumiero","SGT Thiago"],["—"]]');
+    const rows = JSON.parse(window.eval(`JSON.stringify(Render._relDadosBI('produtividade'))`) || 'null');
+    const g = rows && rows.rows.find(r => r[1] === '82061');
+    const t = rows && rows.rows.find(r => r[1] === '90001');
+    checar('16.2 — produtividade: Gumiero conta 6 (3 sozinho + 3 compartilhados), não só os sozinho', g && g[3] === 6, JSON.stringify(g));
+    checar('16.3 — produtividade: Thiago conta 4 (1 sozinho + 3 compartilhados)', t && t[3] === 4, JSON.stringify(t));
+    window.eval(`Render.dashboard()`);
+    const dash = window.document.getElementById('s-dashboard').textContent.replace(/\s+/g, ' ');
+    checar('16.4 — dashboard "Processos por Responsável": Gumiero 6 total / 5 ativos', /SGT Gumiero 5 ativo\(s\) · 6 total/.test(dash), dash.slice(dash.indexOf('Processos por Responsável'), dash.indexOf('Processos por Responsável') + 200));
+    checar('16.5 — dashboard não cria "grupos" com nomes juntados por vírgula', !/SGT Gumiero, SGT Thiago/.test(dash) && !/SGT Thiago, SGT Gumiero/.test(dash));
+    window.eval(`Drawer.open('procresp','SGT Gumiero')`);
+    const drw = window.document.body.textContent.replace(/\s+/g, ' ');
+    checar('16.6 — gaveta do responsável lista os 6 (5 ativos, 1 concluído)', /Ativos: 5/.test(drw) && /Concluídos: 1/.test(drw));
+    checar('16.7 — zero erro JS não tratado no grupo 16', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
