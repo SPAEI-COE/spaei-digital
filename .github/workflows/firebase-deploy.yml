@@ -18,3 +18,6 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: ${{ secrets.FIREBASE_PROJECT_ID }}
           channelId: live
+          # firebase-tools >= 15.34.0 passou a exigir a permissao serviceusage.services.get da conta de servico
+          # (403 em 28/10/2026). Fixado na ultima versao que funcionava ate o IAM ser ajustado.
+          firebaseToolsVersion: 15.33.0
