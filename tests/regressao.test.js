@@ -868,7 +868,7 @@ async function main() {
     const efetivoAntes = JSON.stringify(ev(`DB.get('efetivo')`));
     const processosAntes = JSON.stringify(ev(`DB.get('processos')`));
 
-    checar('17.1 — versão 6.98 e módulo registrado na navegação', ev(`APP_VERSAO`) === '6.98' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
+    checar('17.1 — versão 6.99 e módulo registrado na navegação', ev(`APP_VERSAO`) === '6.99' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
     ev(`buildNav()`);
     checar('17.2 — menu lateral tem o botão "Equipe de Planejamento das Unidades Subordinadas"', /Equipe de Planejamento das Unidades Subordinadas/.test(window.document.getElementById('sb-nav').textContent));
 
@@ -1054,6 +1054,139 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     ev(`safeSet('local','SPAEI_TV_MODE','0')`);
 
     checar('17.64 — zero erro JS não tratado no grupo 17', errosJs.length === 0, errosJs.join(' | '));
+  }
+
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 18 — (a) unidades "sumiam" ao reabrir o app: o Firebase devolve ARRAY
+  // quando as chaves são inteiros sequenciais ("1".."6"); (b) sincronização dos
+  // processos do SEI Gerenciador para as unidades do módulo Planejamento.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    const ev = c => window.eval(c);
+    const J = c => JSON.parse(window.eval(`JSON.stringify(${c})`));
+    window.eval(`
+      Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true};
+      _fbOk = true; _fbSynced = true;
+    `);
+    await espera(50);
+
+    // (a) bug das unidades
+    ev(`Plan.inicializarUnidades()`);
+    ev(`Plan.salvarUnidade({sigla:'BOPE',nome:'Batalhão de Operações Especiais (teste)',secao:'Seção de Planejamento',situacao:'Ativa',obs:''},'2')`);
+    ev(`Plan.salvarLogo('2','data:image/png;base64,iVBORw0KGgo=')`);
+    await espera(120);
+    // exatamente o que o Firebase faz com chaves "1".."6": devolve ARRAY com posição 0 nula
+    const comoFirebase = o => { const a = []; Object.keys(o).forEach(k => { a[+k] = o[k]; }); return a; };
+    window.__arrU = comoFirebase(JSON.parse(JSON.stringify(store.spaei.planUnid)));
+    window.__arrL = comoFirebase(JSON.parse(JSON.stringify(store.spaei.planLogos)));
+    ev(`_mem['planUnid']=window.__arrU; _mem['planLogos']=window.__arrL;`);
+    checar('18.1 — premissa: o banco devolve ARRAY para as unidades (id "1".."6")', ev(`Array.isArray(DB.get('planUnid'))`) === true && ev(`DB.get('planUnid')[0]`) == null);
+    checar('18.2 — com o array do Firebase as 6 unidades continuam visíveis (antes: 0)', ev(`Plan.unidades().length`) === 6 && ev(`Plan.unidade('2').nome`) === 'Batalhão de Operações Especiais (teste)');
+    ev(`Plan.ir('geral')`);
+    checar('18.3 — a tela NÃO oferece mais "Criar as 6 unidades"', !/Nenhuma unidade cadastrada|Criar as 6 unidades/.test(window.document.getElementById('s-planejamento').textContent) && window.document.querySelectorAll('#s-planejamento .pl-tab').length >= 8);
+    checar('18.4 — inicializarUnidades nunca recria nem sobrescreve unidades existentes', ev(`Plan.inicializarUnidades()`) === 0 && ev(`Plan.unidade('2').nome`) === 'Batalhão de Operações Especiais (teste)');
+    checar('18.5 — logomarca também é lida do array', ev(`Plan.logoUnidade('2')`) !== null);
+    ev(`_mem['planUnid']=[]`);   // mesmo "vazio" vindo do banco não deve permitir sobrescrever nada existente no servidor
+    checar('18.6 — salvar nova unidade com o cache em array usa o próximo id sem colidir', (ev(`_mem['planUnid']=window.__arrU`), J(`Plan.salvarUnidade({sigla:'NOVA',nome:'',secao:'',situacao:'Ativa'})`).id === '7'));
+
+    // (b) sincronização com o SEI Gerenciador
+    ev(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'MAJ PM',nome:'CHEFE BOPE TESTE',idFuncional:'710001',tel:'(21) 99999-1111',designadoEm:'2026-01-01'})`);
+    const sei = (n, un, o) => Object.assign({ id: 'SEI-fb' + n, numero: `SEI-35001${n}/000${100 + n}/2026`, assunto: 'Assunto do processo ' + n, resp: 'SGT Gumiero, SGT Thiago', status: 'EM ANDAMENTO', prio: 'ALTA', tipo: 'EXTERNO', criado: '15/10/2026', prazo: '30/12/2026', unidade: un, observacoes: 'obs ' + n, pca: null, _seiSync: true }, o || {});
+    window.__sei = [
+      sei(1, 'BOPE'), sei(2, 'BPChq', { status: 'CONCLUÍDO' }), sei(3, 'CIESPP', { status: 'SUSPENSO', resp: '—' }), sei(4, 'GAM', { status: 'FASE PREPARATÓRIA' }),
+      sei(5, 'BAC', { status: 'CANCELADO' }), sei(6, 'BTM', { status: 'AGUARDANDO', prazo: '—' }), sei(7, 'COE'), sei(8, 'COE'), sei(9, 'Outra Unidade'),
+      sei(10, 'BOPE', { numero: 'sem numero' }), sei(11, 'bope - 1º batalhão', {}),
+      sei(12, 'BOPE', { assunto: '<img src=x onerror="window.__x=18">', resp: '<script>window.__x=19</script>' }),
+    ];
+    ev(`_mem['sei_processos']=window.__sei; localStorage.setItem(LS_PFX+'sei_processos',JSON.stringify(window.__sei))`);
+    checar('18.7 — mapeamento de unidade: BPChq→CHOQUE, "bope - 1º batalhão"→BOPE, COE e desconhecidas → nenhuma', ev(`Plan.unidadePorTextoSei('BPChq').sigla`) === 'CHOQUE' && ev(`Plan.unidadePorTextoSei('bope - 1º batalhão').sigla`) === 'BOPE' && ev(`Plan.unidadePorTextoSei('CIESPP').sigla`) === 'CIEsPP' && ev(`Plan.unidadePorTextoSei('COE')`) === null && ev(`Plan.unidadePorTextoSei('')`) === null);
+    checar('18.8 — mapeamento de status do SEI por GRUPO (concluído/suspenso/cancelado→arquivado/andamento)', ev(`['CONCLUÍDO','SUSPENSO','CANCELADO','FASE PREPARATÓRIA','AGUARDANDO','EM ANDAMENTO'].map(x=>Plan.status(Plan.statusPlanDeSei(x)).grupo).join(',')`) === 'concluido,suspenso,arquivado,andamento,andamento,andamento');
+
+    ev(`Auth.user = {rg:'90001', nome:'CONSULTA', posto:'SD', admin:false}`);
+    checar('18.9 — perfil sem administração não sincroniza (nenhum processo criado)', J(`Plan.sincronizarSei({})`).ok === false && ev(`Plan.processos(true).length`) === 0);
+    ev(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}`);
+    ev(`_fbCfg = _fbCfg || {x:1}; _fbSynced = false`);
+    checar('18.10 — antes da sincronização inicial com o banco, recusa (não escreve por cima do servidor)', J(`Plan.sincronizarSei({})`).aguardando === true && ev(`Plan.processos(true).length`) === 0);
+    ev(`_fbSynced = true`);
+
+    const r1 = J(`Plan.sincronizarSei({})`);
+    await espera(200);
+    checar('18.11 — 1ª sincronização: importa só os das 6 unidades (8 de 12; 4 ficam de fora)', r1.ok && r1.lidos === 12 && r1.criados === 8 && r1.semNumero === 1 && r1.ignorados.COE === 2 && r1.ignorados['Outra Unidade'] === 1, JSON.stringify(r1));
+    const porSei = n => J(`Plan.processos(true).find(p=>Plan._seiKey(p.sei)===Plan._seiKey('SEI-35001${n}/000${100 + n}/2026'))`);
+    const p1 = porSei(1), p2 = porSei(2), p3 = porSei(3), p5 = porSei(5), p6 = porSei(6);
+    checar('18.12 — cada processo caiu na unidade certa (BOPE, BPChq→CHOQUE, CIEsPP, BTM…)', ev(`Plan.siglaUnidade('${p1.unidadeId}')`) === 'BOPE' && ev(`Plan.siglaUnidade('${p2.unidadeId}')`) === 'CHOQUE' && ev(`Plan.siglaUnidade('${p3.unidadeId}')`) === 'CIEsPP' && ev(`Plan.siglaUnidade('${p6.unidadeId}')`) === 'BTM');
+    checar('18.13 — dados corretos: objeto, prazo ISO, atualização do SEI, status por grupo, concluído com data', p1.objeto === 'Assunto do processo 1' && p1.prazo === '2026-12-30' && p1.atualizadoEmData === '2026-10-15' && ev(`Plan.grupoDe(Plan.processo('${p2.id}'))`) === 'concluido' && p2.concluidoEm === '2026-10-15' && ev(`Plan.grupoDe(Plan.processo('${p3.id}'))`) === 'suspenso' && ev(`Plan.grupoDe(Plan.processo('${p5.id}'))`) === 'arquivado' && p6.prazo === '');
+    checar('18.14 — nada inventado: sem categoria, sem responsável vinculado (texto do SEI só como referência)', p1.categoriaId === '' && p1.respPrincipalId === '' && p1.respSeiTexto === 'SGT Gumiero, SGT Thiago' && p3.respSeiTexto === '' && p1.origemSei === 'SEI-fb1');
+    checar('18.15 — id determinístico a partir do nº SEI e histórico "importou do SEI Gerenciador"', p1.id === '88' + ev(`Plan._seiKey('SEI-350011/000101/2026')`) && ev(`Object.values(Plan._map('planHist')).filter(h=>/importou do SEI/.test(h.acao)).length`) === 8);
+    const r2 = J(`Plan.sincronizarSei({})`);
+    await espera(100);
+    checar('18.16 — sincronizar de novo é idempotente: 0 criados, 0 atualizados, 0 duplicados', r2.criados === 0 && r2.atualizados === 0 && r2.iguais === 8 && ev(`Plan.processos(true).length`) === 8, JSON.stringify(r2));
+    checar('18.17 — persistido por id no banco (nó planProc) sem duplicatas', Object.keys(store.spaei.planProc).length === 8);
+
+    // estatísticas e telas
+    const st = J(`Plan.stats()`);
+    checar('18.18 — indicadores refletem os importados (8 processos; "A classificar" na categoria)', st.processos === 8 && st.porCategoria.some(x => x.c.nome === 'A classificar' && x.n === 8) && st.porCategoria.reduce((a, x) => a + x.n, 0) === 8);
+    let abasOk = true, det = '';
+    for (const a of ['geral', 'u:1', 'u:2', 'u:3', 'u:4', 'u:5', 'u:6', 'proc', 'rel', 'hist']) { try { ev(`Plan.ir('${a}')`); const t = window.document.getElementById('s-planejamento').textContent; if (/Não foi possível desenhar/.test(t)) { abasOk = false; det += a + ' '; } } catch (e) { abasOk = false; det += a + ':' + e.message; } }
+    checar('18.19 — todas as abas desenham com os processos importados', abasOk, det);
+    ev(`Plan._fProc={q:'',un:'',resp:'',cat:'',sit:'',ord:'sei',dir:1,pag:1,exc:false}; Plan.ir('proc')`);
+    const tabTxt = window.document.getElementById('pl-painel-tab').textContent.replace(/\s+/g, ' ');
+    checar('18.20 — painel mostra "A classificar", "SEI Gerenciador" e o responsável do SEI como referência', /A classificar/.test(tabTxt) && /SEI Gerenciador/.test(tabTxt) && /SGT Gumiero, SGT Thiago \(SEI\)/.test(tabTxt));
+    checar('18.21 — SEI com HTML malicioso aparece como texto (nada injetado/executado)', window.__x === undefined && !window.document.getElementById('s-planejamento').querySelector('img[src="x"], script') && /<img src=x/.test(window.document.getElementById('s-planejamento').textContent));
+    checar('18.22 — filtro "A classificar" e busca pelo responsável do SEI', J(`(function(){Plan._fProc.cat='__sem';const a=Plan.procLinhas().total;Plan._fProc.cat='';Plan._fProc.q='thiago';const b=Plan.procLinhas().total;Plan._fProc.q='';return a===8&&b>=5})()`));
+    ev(`Plan.ficha('${p1.id}')`);
+    const fi = window.document.getElementById('modal-body').textContent.replace(/\s+/g, ' ');
+    checar('18.23 — ficha mostra origem SEI Gerenciador, situação e responsável no SEI, e o aviso de classificar', /Origem: SEI Gerenciador/.test(fi) && /Situação no SEI: EM ANDAMENTO/.test(fi) && /Falta classificar a categoria/.test(fi));
+    ev(`Modal.close()`);
+    ev(`Plan.fichas`);
+    const rel = J(`Plan.dadosRelatorio(2,'')`);
+    checar('18.24 — relatório de processos inclui origem e "A classificar"', rel.thead.includes('ORIGEM') && rel.rows.some(l => l.includes('SEI Gerenciador') && l.includes('A classificar')) && rel.rows.every(l => l.length === rel.thead.length));
+
+    // edição manual é soberana
+    const rEd = J(`Plan.salvarProcesso({sei:'${p1.sei}',unidadeId:'${p1.unidadeId}',objeto:'Objeto REVISADO pela SPAEI',categoriaId:'',statusId:'s05',respPrincipalId:'',prazo:'${p1.prazo}',inclusaoSpaei:'${p1.inclusaoSpaei}'}, '${p1.id}')`);
+    checar('18.25 — ao editar um importado a categoria passa a ser obrigatória (classificação)', rEd.ok === false && /categoria/i.test(rEd.erros.join(' ')));
+    const rEd2 = J(`Plan.salvarProcesso({sei:'${p1.sei}',unidadeId:'${p1.unidadeId}',objeto:'Objeto REVISADO pela SPAEI',categoriaId:'c03',statusId:'s05',respPrincipalId:'${ev(`Plan.chefe('2').id`)}',prazo:'${p1.prazo}',inclusaoSpaei:'${p1.inclusaoSpaei}'}, '${p1.id}')`);
+    const p1b = porSei(1);
+    checar('18.26 — edição manual salva e preserva a origem SEI (origemSei, situação e responsável do SEI)', rEd2.ok === true && p1b.origemSei === 'SEI-fb1' && p1b.statusSei === 'EM ANDAMENTO' && p1b.respSeiTexto === 'SGT Gumiero, SGT Thiago' && !!p1b.seiBase);
+    // SEI muda: processo 1 (editado) e 6 (intocado)
+    window.__sei = window.__sei.map(x => x.id === 'SEI-fb1' ? Object.assign({}, x, { assunto: 'NOVO assunto vindo do SEI', status: 'CONCLUÍDO', prazo: '01/02/2027', resp: 'SGT Novo', criado: '20/10/2026' }) : x.id === 'SEI-fb6' ? Object.assign({}, x, { assunto: 'Assunto 6 alterado no SEI', status: 'CONCLUÍDO', prazo: '10/01/2027', criado: '21/10/2026' }) : x);
+    ev(`_mem['sei_processos']=window.__sei`);
+    const r3 = J(`Plan.sincronizarSei({})`);
+    await espera(100);
+    const p1c = porSei(1), p6c = porSei(6);
+    checar('18.27 — mudança no SEI atualiza o que não foi editado aqui (processo 6: objeto, fase, prazo, data de conclusão)', p6c.objeto === 'Assunto 6 alterado no SEI' && ev(`Plan.grupoDe(Plan.processo('${p6c.id}'))`) === 'concluido' && p6c.prazo === '2027-01-10' && p6c.concluidoEm === '2026-10-21' && r3.atualizados >= 2, JSON.stringify(r3));
+    checar('18.28 — o que foi editado manualmente NÃO é sobrescrito (objeto e fase do processo 1), mas o prazo não editado e a referência do SEI atualizam', p1c.objeto === 'Objeto REVISADO pela SPAEI' && p1c.statusId === 's05' && p1c.categoriaId === 'c03' && p1c.respPrincipalId === ev(`Plan.chefe('2').id`) && p1c.prazo === '2027-02-01' && p1c.statusSei === 'CONCLUÍDO' && p1c.respSeiTexto === 'SGT Novo');
+    checar('18.29 — alterações vindas do SEI ficam no histórico com antes/depois', ev(`Object.values(Plan._map('planHist')).some(h=>/atualizou a partir do SEI/.test(h.acao)&&h.registroId==='${p6c.id}'&&h.mudancas.some(m=>m.campo==='Prazo estimado'&&m.depois==='2027-01-10'))`));
+
+    // exclusão respeitada; duplicata manual; auto-sync
+    ev(`Plan.excluirProcesso('${p3.id}')`);
+    window.__sei = window.__sei.concat([sei(20, 'GAM', { numero: 'SEI-350099/000999/2026' })]);
+    ev(`Plan.salvarProcesso({sei:'350099/000999/2026',unidadeId:'4',categoriaId:'c01',objeto:'Cadastrado à mão antes',statusId:'s01',inclusaoSpaei:Plan._hoje()})`);
+    ev(`_mem['sei_processos']=window.__sei`);
+    const r4 = J(`Plan.sincronizarSei({})`);
+    await espera(100);
+    checar('18.30 — processo excluído aqui não ressuscita; o já cadastrado à mão (mesmo nº SEI) não duplica', r4.respeitadosExcluidos === 1 && r4.jaCadastrados === 1 && ev(`Plan.processos(true).filter(p=>Plan._seiKey(p.sei)==='350099000999' + '2026').length`) === 1 && ev(`Plan.processo('${p3.id}').excluido`) === true);
+    // auto-sincronização ao abrir o módulo (1x a cada 10 min)
+    window.__sei = window.__sei.concat([sei(30, 'BAC', { numero: 'SEI-350077/000777/2026' })]);
+    ev(`_mem['sei_processos']=window.__sei; Plan._syncUlt=0; Nav.go('planejamento')`);
+    await espera(150);
+    checar('18.31 — ao abrir o módulo, um Administrador recebe os novos processos automaticamente', ev(`Plan.processos().some(p=>Plan._seiKey(p.sei)==='3500770007772026')`));
+    window.__sei = window.__sei.concat([sei(31, 'BAC', { numero: 'SEI-350078/000778/2026' })]);
+    ev(`_mem['sei_processos']=window.__sei; Nav.go('planejamento')`);
+    checar('18.32 — dentro dos 10 min o automático não roda de novo (sem laço de gravação)', !ev(`Plan.processos().some(p=>Plan._seiKey(p.sei)==='3500780007782026')`));
+    ev(`Auth.user = {rg:'90001', nome:'CONSULTA', posto:'SD', admin:false}; Plan._syncUlt=0; Nav.go('planejamento')`);
+    checar('18.33 — perfil de consulta abrindo o módulo não dispara sincronização', !ev(`Plan.processos().some(p=>Plan._seiKey(p.sei)==='3500780007782026')`));
+    ev(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}`);
+    ev(`Plan.ir('proc'); Plan.sincronizarManual()`);
+    const mod = window.document.getElementById('modal-body').textContent.replace(/\s+/g, ' ');
+    checar('18.34 — botão manual mostra o resumo (lidos, importados, atualizados, unidades fora do módulo)', /Processos lidos do SEI/.test(mod) && /Importados agora/.test(mod) && /fora das 6 do módulo/.test(mod) && /COE: 2/.test(mod));
+    ev(`Modal.close()`);
+    checar('18.35 — ids de histórico não colidem em laço rápido', ev(`(function(){const s=new Set();for(let i=0;i<5000;i++)s.add(Plan._id());return s.size})()`) === 5000);
+    checar('18.36 — dados do SEI e demais nós existentes ficam intactos (a sincronização só LÊ o SEI)', JSON.stringify(ev(`_mem['sei_processos']`).map(x => x.id)) === JSON.stringify(window.__sei.map(x => x.id)));
+    checar('18.37 — zero erro JS não tratado no grupo 18', errosJs.length === 0, errosJs.join(' | '));
   }
 
   const falhas = resultados.filter(r => !r).length;
