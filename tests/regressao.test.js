@@ -868,9 +868,9 @@ async function main() {
     const efetivoAntes = JSON.stringify(ev(`DB.get('efetivo')`));
     const processosAntes = JSON.stringify(ev(`DB.get('processos')`));
 
-    checar('17.1 — versão 6.97 e módulo registrado na navegação', ev(`APP_VERSAO`) === '6.97' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
+    checar('17.1 — versão 6.98 e módulo registrado na navegação', ev(`APP_VERSAO`) === '6.98' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
     ev(`buildNav()`);
-    checar('17.2 — menu lateral tem o botão "Planejamento COE"', /Planejamento COE/.test(window.document.getElementById('sb-nav').textContent));
+    checar('17.2 — menu lateral tem o botão "Equipe de Planejamento das Unidades Subordinadas"', /Equipe de Planejamento das Unidades Subordinadas/.test(window.document.getElementById('sb-nav').textContent));
 
     // estado inicial: sem dados fictícios
     ev(`Nav.go('planejamento')`); await espera(30);
