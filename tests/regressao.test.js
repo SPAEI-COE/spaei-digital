@@ -868,7 +868,7 @@ async function main() {
     const efetivoAntes = JSON.stringify(ev(`DB.get('efetivo')`));
     const processosAntes = JSON.stringify(ev(`DB.get('processos')`));
 
-    checar('17.1 — versão 6.99 e módulo registrado na navegação', ev(`APP_VERSAO`) === '6.99' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
+    checar('17.1 — versão 7.00 e módulo registrado na navegação', ev(`APP_VERSAO`) === '7.00' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
     ev(`buildNav()`);
     checar('17.2 — menu lateral tem o botão "Equipe de Planejamento das Unidades Subordinadas"', /Equipe de Planejamento das Unidades Subordinadas/.test(window.document.getElementById('sb-nav').textContent));
 
@@ -1187,6 +1187,178 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     checar('18.35 — ids de histórico não colidem em laço rápido', ev(`(function(){const s=new Set();for(let i=0;i<5000;i++)s.add(Plan._id());return s.size})()`) === 5000);
     checar('18.36 — dados do SEI e demais nós existentes ficam intactos (a sincronização só LÊ o SEI)', JSON.stringify(ev(`_mem['sei_processos']`).map(x => x.id)) === JSON.stringify(window.__sei.map(x => x.id)));
     checar('18.37 — zero erro JS não tratado no grupo 18', errosJs.length === 0, errosJs.join(' | '));
+  }
+
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 19 — "Cadastro incompleto" aparecia mesmo com os nomes preenchidos:
+  // a regra misturava dado faltando com equipe ainda não cadastrada e cobrava
+  // campos que o formulário não exige. Três conceitos agora separados.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    const ev = c => window.eval(c);
+    const J = c => JSON.parse(window.eval(`JSON.stringify(${c})`));
+    window.eval(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}; _fbOk = true; _fbSynced = true;`);
+    const NOMES = { 1: 'Batalhão de Polícia de Choque', 2: 'Batalhão de Operações Policiais Especiais', 3: 'Companhia Independente de Ensino e Pesquisa', 4: 'Grupamento Aeromóvel', 5: 'Batalhão de Ações com Cães', 6: 'Batalhão de Treinamento e Manutenção' };
+    ev(`Plan.inicializarUnidades()`);
+    // o administrador preenche o NOME COMPLETO de cada unidade pelo formulário real (DOM)
+    for (const id of Object.keys(NOMES)) {
+      ev(`Plan.formUnidade('${id}')`);
+      window.document.getElementById('pl-u-nome').value = NOMES[id];
+      window.document.getElementById('pl-u-secao').value = 'Seção de Projetos e Planejamento';
+      ev(`Plan._salvarFormUnidade('${id}')`);
+    }
+    await espera(150);
+    // o Firebase devolve as unidades como ARRAY ao reabrir o app
+    window.__arr = (o => { const a = []; Object.keys(o).forEach(k => { a[+k] = o[k]; }); return a; })(JSON.parse(JSON.stringify(store.spaei.planUnid)));
+    ev(`_mem['planUnid']=window.__arr`);
+    checar('19.1 — nomes gravados pelo formulário e relidos do array do banco (6 de 6 com nome completo)', ev(`Plan.unidades().filter(u=>u.nome&&u.secao).length`) === 6 && ev(`Plan.unidade('3').nome`) === NOMES[3]);
+    const e1 = J(`Plan.equipeIncompleta(Plan.unidade('1'))`);
+    checar('19.2 — unidade com nome completo e sem membros NÃO é "cadastro incompleto"', e1.incompleta === false && e1.unidade.length === 0 && e1.integrantes.length === 0);
+    checar('19.3 — mas fica sinalizada à parte como "equipe a cadastrar" (chefe + auxiliares)', e1.equipe.join('|') === 'chefe da seção|auxiliares');
+    const st = J(`Plan.stats()`);
+    checar('19.4 — indicadores: 0 incompletas, 6 equipes a cadastrar', st.equipesIncompletas === 0 && st.equipesACadastrar === 6);
+    checar('19.5 — tabela de acompanhamento: coluna Cadastro "completo" e Equipe "a cadastrar" para as 6', J(`Plan.pendenciasPorUnidade().every(r=>r.cadastro===0&&r.equipe.length===2)`));
+    ev(`Plan.ir('u:1')`);
+    let tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    checar('19.6 — aba da unidade: sem "Cadastro incompleto"; mostra "Equipe a cadastrar" e dados da unidade completos', !/Cadastro incompleto/.test(tx) && /Equipe a cadastrar/.test(tx) && /Os dados da unidade estão completos/.test(tx));
+    ev(`Plan.ir('geral')`);
+    tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    const linhasTab = [...window.document.querySelectorAll('#s-planejamento table.pl-t')].find(t => /Cadastro incompleto/.test(t.textContent));
+    checar('19.7 — painel geral: 6 linhas "completo" + "a cadastrar", nenhuma contagem de itens faltando', !!linhasTab && (linhasTab.textContent.match(/completo/g) || []).length >= 6 && (linhasTab.textContent.match(/a cadastrar/g) || []).length === 6 && !/item\(ns\)/.test(linhasTab.textContent));
+    const rel = J(`Plan.dadosRelatorio(4,'')`);
+    checar('19.8 — relatório de pendências: sem "Cadastro incompleto"; com 6 linhas "Equipe a cadastrar"', !rel.rows.some(l => /Cadastro incompleto/.test(l.join(' '))) && rel.rows.filter(l => l.includes('Equipe a cadastrar')).length === 6);
+
+    // unidade realmente sem nome continua sendo incompleta
+    ev(`Plan.salvarUnidade({sigla:'TESTE',nome:'',secao:'',situacao:'Ativa'})`);
+    await espera(80);
+    const idT = J(`Plan.unidades().find(u=>u.sigla==='TESTE').id`);
+    const eT = J(`Plan.equipeIncompleta(Plan.unidade('${idT}'))`);
+    ev(`Plan.ir('u:${idT}')`);
+    tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    checar('19.9 — unidade sem nome completo continua "Cadastro incompleto: falta nome completo"', eT.incompleta === true && eT.unidade[0] === 'nome completo' && /Cadastro incompleto\. Unidade: falta nome completo/.test(tx));
+    ev(`_mem['planUnid']=Object.fromEntries(Object.entries(Object.assign({}, _mem['planUnid'])).filter(([k])=>k!=='${idT}'))`);   // tira a unidade de teste do cache
+
+    // chefe com SÓ os campos obrigatórios do formulário (*): não pode ficar "incompleto"
+    ev(`Plan.ir('u:1')`);
+    const rc = J(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM DA SILVA',idFuncional:'800001'})`);
+    await espera(100);
+    const e2 = J(`Plan.equipeIncompleta(Plan.unidade('1'))`);
+    ev(`Plan.ir('u:1')`);
+    tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    checar('19.10 — chefe só com campos obrigatórios (posto, nome, ID): salva, NÃO fica incompleto', rc.ok === true && e2.incompleta === false && e2.integrantes.length === 0 && !/Falta \(obrigatório\)/.test(tx) && !/Cadastro incompleto/.test(tx));
+    checar('19.11 — "equipe a cadastrar" passa a pedir só os auxiliares; contato/data viram sugestão opcional', e2.equipe.join('|') === 'auxiliares' && /Dados complementares \(opcionais\)/.test(tx) && /contato \(telefone ou e-mail\)/.test(tx) && /data de designação/.test(tx));
+    checar('19.12 — o nome da unidade continua gravado depois de salvar integrante (sem sobrescrita por cópia velha)', ev(`Plan.unidade('1').nome`) === NOMES[1] && store.spaei.planUnid['1'].nome === NOMES[1]);
+    // auxiliar completo
+    ev(`Plan.salvarMembro({unidadeId:'1',papel:'auxiliar',posto:'1º SGT PM',nome:'AUXILIAR UM',idFuncional:'800002',tel:'(21) 98888-1111',funcao:'Analista de processos'})`);
+    ev(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM DA SILVA',idFuncional:'800001',tel:'(21) 97777-1111',designadoEm:'2026-01-05'}, '${J(`Plan.chefe('1').id`)}')`);
+    await espera(120);
+    const e3 = J(`Plan.equipeIncompleta(Plan.unidade('1'))`);
+    ev(`Plan.ir('u:1')`);
+    tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    checar('19.13 — equipe completa: nenhum aviso (nem incompleto, nem a cadastrar, nem complementos)', e3.incompleta === false && e3.equipe.length === 0 && e3.complementos.length === 0 && !/Cadastro incompleto|Equipe a cadastrar|Dados complementares/.test(tx));
+    const st2 = J(`Plan.stats()`);
+    checar('19.14 — indicadores acompanham: 5 equipes ainda a cadastrar', st2.equipesACadastrar === 5 && st2.equipesIncompletas === 0);
+
+    // integrante legado/importado sem dado OBRIGATÓRIO continua apontado
+    ev(`_mem['planMemb']=Object.assign({}, _mem['planMemb'], {'990001':{id:'990001',unidadeId:'2',papel:'auxiliar',posto:'',nome:'SEM POSTO',idFuncional:'',ativo:true,excluido:false,ordem:9}})`);
+    const e4 = J(`Plan.equipeIncompleta(Plan.unidade('2'))`);
+    checar('19.15 — integrante sem posto/ID funcional (dado obrigatório) segue como "incompleto", listando o que falta', e4.incompleta === true && e4.integrantes[0].faltas.join('|') === 'posto/graduação|ID funcional');
+    ev(`Plan.ir('u:2')`);
+    tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    checar('19.16 — aviso informa quantos e quais integrantes', /1 integrante\(s\) com dados obrigatórios faltando \(SEM\)/.test(tx));
+    ev(`_mem['planMemb']=Object.fromEntries(Object.entries(_mem['planMemb']).filter(([k])=>k!=='990001'))`);
+
+    // integrante com nome vazio não derruba a tela (nome.split)
+    ev(`_mem['planMemb']=Object.assign({}, _mem['planMemb'], {'990002':{id:'990002',unidadeId:'3',papel:'auxiliar',posto:'CB PM',nome:'',idFuncional:'5',ativo:true,excluido:false,ordem:9}})`);
+    let okTela = true; try { ev(`Plan.ir('u:3')`); okTela = !/Não foi possível desenhar/.test(window.document.getElementById('s-planejamento').textContent); } catch (e) { okTela = false; }
+    checar('19.17 — integrante com nome vazio não quebra a aba da unidade', okTela);
+    ev(`_mem['planMemb']=Object.fromEntries(Object.entries(_mem['planMemb']).filter(([k])=>k!=='990002'))`);
+
+    // processos importados do SEI continuam funcionando junto
+    ev(`Plan.ir('geral')`);
+    checar('19.18 — painel geral desenha sem erro após a mudança', !/Não foi possível desenhar/.test(window.document.getElementById('s-planejamento').textContent) && window.document.querySelectorAll('#s-planejamento .pl-kpi').length >= 10);
+    checar('19.19 — zero erro JS não tratado no grupo 19', errosJs.length === 0, errosJs.join(' | '));
+  }
+
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 20 — varredura do checklist: todos os relatórios, todos os formulários,
+  // ida-e-volta de edição pelo formulário real e XSS em atributos/telas.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    const ev = c => window.eval(c);
+    const J = c => JSON.parse(window.eval(`JSON.stringify(${c})`));
+    window.eval(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}; _fbOk = true; _fbSynced = true;`);
+    window.__x = undefined;
+    const XS = `"><img src=x onerror="window.__x=20">`;
+    ev(`Plan.inicializarUnidades()`);
+    ev(`Plan.salvarUnidade({sigla:'BOPE',nome:${JSON.stringify('Nome "com aspas" ' + XS)},secao:${JSON.stringify(XS)},situacao:'Ativa',obs:${JSON.stringify(XS)}},'2')`);
+    const rch = J(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'MAJ PM',nome:'CHEFE BOPE',idFuncional:'900001',tel:'(21) 99999-0001',designadoEm:'2026-02-02',email:'chefe@exemplo.com',emailInst:'secao@exemplo.com',ramal:'1234',obs:${JSON.stringify(XS)}})`);
+    const raux = J(`Plan.salvarMembro({unidadeId:'2',papel:'auxiliar',posto:'1º SGT PM',nome:${JSON.stringify('AUX ' + XS)},idFuncional:'900002',tel:'(21) 99999-0002',funcao:${JSON.stringify(XS)}})`);
+    ev(`Plan.salvarProcesso({sei:'SEI-350010/000123/2026',unidadeId:'2',categoriaId:'c01',objeto:${JSON.stringify(XS)},statusId:'s01',respPrincipalId:'${rch.id}',inclusaoSpaei:Plan._hoje(),pendencias:${JSON.stringify(XS)},obsSpaei:${JSON.stringify(XS)}})`);
+    await espera(150);
+    checar('20.1 — base do cenário criada (unidade, chefe, auxiliar, processo)', rch.ok && raux.ok && ev(`Plan.processos().length`) === 1);
+
+    // relatórios: todos, geral e por unidade
+    let relOk = true, relDet = '';
+    for (const n of [1, 2, 3, 4, 5]) for (const uid of ['', '1', '2', '6']) {
+      try { const r = J(`Plan.dadosRelatorio(${n},'${uid}')`); if (!r.thead || !r.rows.every(l => l.length === r.thead.length)) { relOk = false; relDet += `r${n}/u${uid}:colunas `; } }
+      catch (e) { relOk = false; relDet += `r${n}/u${uid}:${e.message} `; }
+    }
+    checar('20.2 — 5 relatórios × (geral + 3 unidades): sem exceção e linhas com o nº de colunas do cabeçalho', relOk, relDet);
+
+    // formulários abrem e fecham
+    let fOk = true, fDet = '';
+    const forms = [`Plan.formUnidade(null)`, `Plan.formUnidade('2')`, `Plan.formMembro('2',null,'chefe')`, `Plan.formMembro('2',null,'auxiliar')`, `Plan.formMembro('2','${rch.id}')`, `Plan.formMembro('2','${raux.id}')`, `Plan.formProcesso(null,'2')`, `Plan.formProcesso('${J(`Plan.processos()[0].id`)}')`, `Plan.formComunicado(null)`, `Plan.formComunicado('2')`, `Plan.formSaida('${raux.id}')`];
+    for (const f of forms) { try { ev(f); const mb = window.document.getElementById('modal-body'); if (!mb || mb.textContent.length < 20) { fOk = false; fDet += f + ':vazio '; } ev(`Modal.close()`); } catch (e) { fOk = false; fDet += f + ':' + e.message + ' '; } }
+    checar('20.3 — os 11 formulários abrem com conteúdo e fecham sem erro', fOk, fDet);
+
+    // XSS: nada executa em nenhuma aba, ficha, formulário
+    let xssOk = true;
+    const telas = [`Plan.ir('geral')`, `Plan.ir('u:2')`, `Plan.ir('proc')`, `Plan.ir('rel')`, `Plan.ir('hist')`, `Plan.ficha('${J(`Plan.processos()[0].id`)}')`, `Plan.formUnidade('2')`, `Plan.formMembro('2','${rch.id}')`, `Plan.formMembro('2','${raux.id}')`, `Plan.formProcesso('${J(`Plan.processos()[0].id`)}')`, `Plan.fichas('2')`];
+    for (const t of telas) { try { ev(t); } catch (e) { xssOk = false; } if (window.document.querySelector('#s-planejamento img[onerror], #modal-body img[onerror], img[src="x"]')) xssOk = false; ev(`typeof Modal!=='undefined'&&Modal.close()`); }
+    checar('20.4 — texto malicioso em unidade/seção/obs/integrante/função/processo não cria elemento nem executa (11 telas)', xssOk && window.__x === undefined);
+
+    // ida e volta pelo formulário real: editar só o telefone do chefe preserva o restante
+    ev(`Plan.formMembro('2','${rch.id}')`);
+    window.document.getElementById('pl-m-tel').value = '(21) 98888-7777';
+    ev(`Plan._salvarFormMembro('2','${rch.id}','chefe')`);
+    await espera(120);
+    const ch = J(`Plan.membro('${rch.id}')`);
+    checar('20.5 — editar só o telefone do chefe pelo formulário preserva posto, nome, ID, e-mails, ramal, designação', ch.tel === '(21) 98888-7777' && ch.posto === 'MAJ PM' && ch.nome === 'CHEFE BOPE' && ch.idFuncional === '900001' && ch.email === 'chefe@exemplo.com' && ch.emailInst === 'secao@exemplo.com' && ch.ramal === '1234' && ch.designadoEm === '2026-02-02');
+    ev(`Plan.formMembro('2','${raux.id}')`);
+    window.document.getElementById('pl-m-func').value = 'Analista';
+    ev(`Plan._salvarFormMembro('2','${raux.id}','auxiliar')`);
+    await espera(120);
+    const ax = J(`Plan.membro('${raux.id}')`);
+    checar('20.6 — editar a função do auxiliar preserva o restante e gravou exatamente o digitado', ax.funcao === 'Analista' && ax.idFuncional === '900002' && ax.tel === '(21) 99999-0002' && ax.nome.startsWith('AUX '));
+    ev(`Plan.formUnidade('2')`);
+    const nomeNoCampo = window.document.getElementById('pl-u-nome').value;
+    ev(`Plan._salvarFormUnidade('2')`);
+    await espera(100);
+    checar('20.7 — nome com aspas e HTML faz ida-e-volta idêntica pelo formulário (sem corromper nem duplicar escape)', nomeNoCampo === ev(`Plan.unidade('2').nome`) && ev(`Plan.unidade('2').nome`).includes('"com aspas"') && store.spaei.planUnid['2'].nome === nomeNoCampo);
+
+    // regras de unicidade
+    const dup = J(`Plan.salvarMembro({unidadeId:'3',papel:'chefe',posto:'CAP PM',nome:'OUTRO',idFuncional:'900001'})`);
+    const dup2 = J(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'CAP PM',nome:'SEGUNDO CHEFE',idFuncional:'900099'})`);
+    const dup3 = J(`Plan.salvarProcesso({sei:'350010/000123/2026',unidadeId:'3',categoriaId:'c01',objeto:'dup',statusId:'s01',inclusaoSpaei:Plan._hoje()})`);
+    checar('20.8 — bloqueia ID funcional repetido, 2º chefe na mesma unidade e nº SEI repetido (com ou sem prefixo)', !dup.ok && !dup2.ok && !dup3.ok);
+
+    // perfil de consulta
+    ev(`Auth.user = {rg:'90001', nome:'CONSULTA', posto:'SD', admin:false}`);
+    ev(`Plan.ir('u:2')`);
+    const txC = window.document.getElementById('s-planejamento').textContent;
+    ev(`Plan.formUnidade('2')`);
+    const abriu = window.document.getElementById('modal-body') && window.document.getElementById('modal-body').textContent.length > 20 && window.document.getElementById('modal-body').offsetParent !== null && /Editar unidade/.test(window.document.getElementById('modal-body').parentElement.textContent);
+    const rSave = J(`Plan.salvarUnidade({sigla:'HACK',nome:'x'})`);
+    checar('20.9 — consulta: sem botões de edição, sem formulário e escrita recusada', !/Editar unidade|Adicionar integrante|Novo processo|Sincronizar com o SEI/.test(txC) && rSave.ok === false && !abriu);
+    ev(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}`);
+    checar('20.10 — zero erro JS não tratado no grupo 20', errosJs.length === 0, errosJs.join(' | '));
   }
 
   const falhas = resultados.filter(r => !r).length;
