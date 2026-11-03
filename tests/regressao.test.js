@@ -868,7 +868,7 @@ async function main() {
     const efetivoAntes = JSON.stringify(ev(`DB.get('efetivo')`));
     const processosAntes = JSON.stringify(ev(`DB.get('processos')`));
 
-    checar('17.1 — versão 7.00 e módulo registrado na navegação', ev(`APP_VERSAO`) === '7.00' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
+    checar('17.1 — versão 7.01 e módulo registrado na navegação', ev(`APP_VERSAO`) === '7.01' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
     ev(`buildNav()`);
     checar('17.2 — menu lateral tem o botão "Equipe de Planejamento das Unidades Subordinadas"', /Equipe de Planejamento das Unidades Subordinadas/.test(window.document.getElementById('sb-nav').textContent));
 
@@ -886,22 +886,22 @@ async function main() {
     await espera(60);
     const nPlanUnid = Object.keys(store.spaei.planUnid || {}).length;
     checar('17.5 — perfil sem administração: gravação recusada na função (não só escondida na tela)', rNeg.ok === false && ev(`Plan.unidades().length`) === 6 && nPlanUnid === 6
-      && J(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'CAP',nome:'X',idFuncional:'1'})`).ok === false && J(`Plan.salvarProcesso({sei:'1'})`).ok === false);
+      && J(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'CAP',nome:'X',idFuncional:'1',rg:'1'})`).ok === false && J(`Plan.salvarProcesso({sei:'1'})`).ok === false);
     ev(`Nav.go('planejamento')`);
     checar('17.6 — perfil de consulta não vê botões de edição nem a aba Configurações', !/Novo processo|Editar unidade|Configurações/.test(window.document.getElementById('s-planejamento').textContent));
     ev(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}`);
 
     // integrantes: validação
-    const m0 = (o) => JSON.stringify(Object.assign({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM',idFuncional:'111111',cpf:'',tel:'(21) 99999-0001',email:'chefe@exemplo.org',designadoEm:'2026-01-10'}, o||{}));
+    const m0 = (o) => JSON.stringify(Object.assign({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM',idFuncional:'111111',rg:'111111',cpf:'',tel:'(21) 99999-0001',email:'chefe@exemplo.org',designadoEm:'2026-01-10'}, o||{}));
     checar('17.7 — integrante sem posto/nome/ID é recusado com mensagens', J(`Plan.salvarMembro(${m0({posto:'',nome:'',idFuncional:''})})`).ok === false && J(`Plan.salvarMembro(${m0({posto:'',nome:'',idFuncional:''})})`).erros.length >= 3);
     checar('17.8 — CPF inválido recusado; e-mail e telefone inválidos recusados', J(`Plan.salvarMembro(${m0({cpf:'111.111.111-11'})})`).ok === false && J(`Plan.salvarMembro(${m0({email:'sem-arroba'})})`).ok === false && J(`Plan.salvarMembro(${m0({tel:'123'})})`).ok === false);
     const rCh = J(`Plan.salvarMembro(${m0({cpf:'529.982.247-25'})})`);
     checar('17.9 — chefe válido salvo; CPF gravado SOMENTE mascarado (nunca completo no banco)', rCh.ok === true && /\*\*\*\.982\.247-\*\*/.test(ev(`Plan.membro('${rCh.id}').cpfMask`)) && !JSON.stringify(store).includes('52998224725') && !JSON.stringify(store).includes('529.982.247-25') && ev(`Plan.membro('${rCh.id}').cpf`) === undefined);
     checar('17.10 — ID funcional duplicado recusado', J(`Plan.salvarMembro(${m0({nome:'OUTRO',papel:'auxiliar',funcao:'Apoio'})})`).ok === false);
-    checar('17.11 — segundo chefe na mesma unidade recusado (chefe único)', J(`Plan.salvarMembro(${m0({nome:'SEGUNDO CHEFE',idFuncional:'222222'})})`).ok === false);
+    checar('17.11 — segundo chefe na mesma unidade recusado (chefe único)', J(`Plan.salvarMembro(${m0({nome:'SEGUNDO CHEFE',idFuncional:'222222',rg:'222222'})})`).ok === false);
 
     // auxiliares ilimitados + promoção + saída + exclusão lógica
-    const aux = (n, o) => JSON.stringify(Object.assign({unidadeId:'1',papel:'auxiliar',posto:'SGT PM',nome:'AUX '+n,idFuncional:String(300000+n),tel:'(21) 98888-'+String(1000+n),funcao:'Planejamento',ingressoEm:'2026-02-01'}, o||{}));
+    const aux = (n, o) => JSON.stringify(Object.assign({unidadeId:'1',papel:'auxiliar',posto:'SGT PM',nome:'AUX '+n,idFuncional:String(300000+n),rg:String(200000+n),tel:'(21) 98888-'+String(1000+n),funcao:'Planejamento',ingressoEm:'2026-02-01'}, o||{}));
     const ids = [];
     for (let i = 1; i <= 62; i++) { const r = J(`Plan.salvarMembro(${aux(i)})`); if (r.ok) ids.push(r.id); }
     await espera(80);
@@ -959,7 +959,7 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
 
     // XSS: dados maliciosos viram texto
     const xss = '<img src=x onerror="window.__x=1">';
-    ev(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'CAP PM',nome:${JSON.stringify(xss)},idFuncional:'777001',tel:'(21) 97777-0001',designadoEm:'2026-01-01'})`);
+    ev(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'CAP PM',nome:${JSON.stringify(xss)},idFuncional:'777001',rg:'777001',tel:'(21) 97777-0001',designadoEm:'2026-01-01'})`);
     ev(`Plan.salvarProcesso({sei:'SEI-999/1/2026',unidadeId:'2',categoriaId:'c01',objeto:${JSON.stringify('"><script>window.__x=2</script>' + xss)},statusId:'s01',inclusaoSpaei:Plan._hoje()})`);
     for (const t of ['geral', 'u:2', 'proc', 'hist']) { ev(`Plan.ir('${t}')`); }
     ev(`Plan.ir('u:2')`);
@@ -1009,7 +1009,7 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     window.eval(`window.__html=''; window.open=function(){ return {document:{write:function(h){ window.__html+=h; },close:function(){}}}; };`);
     const rels = [1, 2, 3, 4, 5].map(n => J(`Plan.dadosRelatorio(${n})`));
     checar('17.46 — os 5 relatórios geram dados reais (colunas = linhas)', rels.every(r => r.rows.length > 0 && r.rows.every(l => l.length === r.thead.length)), rels.map(r => r.rows.length).join(','));
-    checar('17.47 — relatório 1 mostra CPF só mascarado; relatório 3 tem linha TOTAL', !JSON.stringify(rels[0]).includes('52998224725') && rels[0].rows.some(l => /\*\*\*/.test(l[5])) && rels[2].rows.some(l => l[0] === 'TOTAL') && rels[2].secoes.length === 2);
+    checar('17.47 — relatório 1 mostra CPF só mascarado; relatório 3 tem linha TOTAL', !JSON.stringify(rels[0]).includes('52998224725') && rels[0].rows.some(l => /\*\*\*/.test(l[6])) && rels[2].rows.some(l => l[0] === 'TOTAL') && rels[2].secoes.length === 2);
     ev(`Plan.exportar(2,'PDF')`);
     checar('17.48 — PDF: cabeçalho institucional, data e conteúdo escapado', /SPAEI DIGITAL/.test(window.__html) && /Gerado em/.test(window.__html) && /Processos SEI por Unidade/.test(window.__html) && !/<script>window\.__x=2/.test(window.__html) && !/<img src=x/.test(window.__html) && /&lt;img/.test(window.__html));
     window.__html = '';
@@ -1093,7 +1093,7 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     checar('18.6 — salvar nova unidade com o cache em array usa o próximo id sem colidir', (ev(`_mem['planUnid']=window.__arrU`), J(`Plan.salvarUnidade({sigla:'NOVA',nome:'',secao:'',situacao:'Ativa'})`).id === '7'));
 
     // (b) sincronização com o SEI Gerenciador
-    ev(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'MAJ PM',nome:'CHEFE BOPE TESTE',idFuncional:'710001',tel:'(21) 99999-1111',designadoEm:'2026-01-01'})`);
+    ev(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'MAJ PM',nome:'CHEFE BOPE TESTE',idFuncional:'710001',rg:'710001',tel:'(21) 99999-1111',designadoEm:'2026-01-01'})`);
     const sei = (n, un, o) => Object.assign({ id: 'SEI-fb' + n, numero: `SEI-35001${n}/000${100 + n}/2026`, assunto: 'Assunto do processo ' + n, resp: 'SGT Gumiero, SGT Thiago', status: 'EM ANDAMENTO', prio: 'ALTA', tipo: 'EXTERNO', criado: '15/10/2026', prazo: '30/12/2026', unidade: un, observacoes: 'obs ' + n, pca: null, _seiSync: true }, o || {});
     window.__sei = [
       sei(1, 'BOPE'), sei(2, 'BPChq', { status: 'CONCLUÍDO' }), sei(3, 'CIESPP', { status: 'SUSPENSO', resp: '—' }), sei(4, 'GAM', { status: 'FASE PREPARATÓRIA' }),
@@ -1243,7 +1243,7 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
 
     // chefe com SÓ os campos obrigatórios do formulário (*): não pode ficar "incompleto"
     ev(`Plan.ir('u:1')`);
-    const rc = J(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM DA SILVA',idFuncional:'800001'})`);
+    const rc = J(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM DA SILVA',idFuncional:'800001',rg:'800001'})`);
     await espera(100);
     const e2 = J(`Plan.equipeIncompleta(Plan.unidade('1'))`);
     ev(`Plan.ir('u:1')`);
@@ -1252,8 +1252,8 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     checar('19.11 — "equipe a cadastrar" passa a pedir só os auxiliares; contato/data viram sugestão opcional', e2.equipe.join('|') === 'auxiliares' && /Dados complementares \(opcionais\)/.test(tx) && /contato \(telefone ou e-mail\)/.test(tx) && /data de designação/.test(tx));
     checar('19.12 — o nome da unidade continua gravado depois de salvar integrante (sem sobrescrita por cópia velha)', ev(`Plan.unidade('1').nome`) === NOMES[1] && store.spaei.planUnid['1'].nome === NOMES[1]);
     // auxiliar completo
-    ev(`Plan.salvarMembro({unidadeId:'1',papel:'auxiliar',posto:'1º SGT PM',nome:'AUXILIAR UM',idFuncional:'800002',tel:'(21) 98888-1111',funcao:'Analista de processos'})`);
-    ev(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM DA SILVA',idFuncional:'800001',tel:'(21) 97777-1111',designadoEm:'2026-01-05'}, '${J(`Plan.chefe('1').id`)}')`);
+    ev(`Plan.salvarMembro({unidadeId:'1',papel:'auxiliar',posto:'1º SGT PM',nome:'AUXILIAR UM',idFuncional:'800002',rg:'800002',tel:'(21) 98888-1111',funcao:'Analista de processos'})`);
+    ev(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM DA SILVA',idFuncional:'800001',rg:'800001',tel:'(21) 97777-1111',designadoEm:'2026-01-05'}, '${J(`Plan.chefe('1').id`)}')`);
     await espera(120);
     const e3 = J(`Plan.equipeIncompleta(Plan.unidade('1'))`);
     ev(`Plan.ir('u:1')`);
@@ -1265,7 +1265,7 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     // integrante legado/importado sem dado OBRIGATÓRIO continua apontado
     ev(`_mem['planMemb']=Object.assign({}, _mem['planMemb'], {'990001':{id:'990001',unidadeId:'2',papel:'auxiliar',posto:'',nome:'SEM POSTO',idFuncional:'',ativo:true,excluido:false,ordem:9}})`);
     const e4 = J(`Plan.equipeIncompleta(Plan.unidade('2'))`);
-    checar('19.15 — integrante sem posto/ID funcional (dado obrigatório) segue como "incompleto", listando o que falta', e4.incompleta === true && e4.integrantes[0].faltas.join('|') === 'posto/graduação|ID funcional');
+    checar('19.15 — integrante sem posto/ID funcional (dado obrigatório) segue como "incompleto", listando o que falta', e4.incompleta === true && e4.integrantes[0].faltas.join('|') === 'posto/graduação|RG|ID funcional');
     ev(`Plan.ir('u:2')`);
     tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
     checar('19.16 — aviso informa quantos e quais integrantes', /1 integrante\(s\) com dados obrigatórios faltando \(SEM\)/.test(tx));
@@ -1298,8 +1298,8 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     const XS = `"><img src=x onerror="window.__x=20">`;
     ev(`Plan.inicializarUnidades()`);
     ev(`Plan.salvarUnidade({sigla:'BOPE',nome:${JSON.stringify('Nome "com aspas" ' + XS)},secao:${JSON.stringify(XS)},situacao:'Ativa',obs:${JSON.stringify(XS)}},'2')`);
-    const rch = J(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'MAJ PM',nome:'CHEFE BOPE',idFuncional:'900001',tel:'(21) 99999-0001',designadoEm:'2026-02-02',email:'chefe@exemplo.com',emailInst:'secao@exemplo.com',ramal:'1234',obs:${JSON.stringify(XS)}})`);
-    const raux = J(`Plan.salvarMembro({unidadeId:'2',papel:'auxiliar',posto:'1º SGT PM',nome:${JSON.stringify('AUX ' + XS)},idFuncional:'900002',tel:'(21) 99999-0002',funcao:${JSON.stringify(XS)}})`);
+    const rch = J(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'MAJ PM',nome:'CHEFE BOPE',idFuncional:'900001',rg:'900001',tel:'(21) 99999-0001',designadoEm:'2026-02-02',email:'chefe@exemplo.com',emailInst:'secao@exemplo.com',ramal:'1234',obs:${JSON.stringify(XS)}})`);
+    const raux = J(`Plan.salvarMembro({unidadeId:'2',papel:'auxiliar',posto:'1º SGT PM',nome:${JSON.stringify('AUX ' + XS)},idFuncional:'900002',rg:'900002',tel:'(21) 99999-0002',funcao:${JSON.stringify(XS)}})`);
     ev(`Plan.salvarProcesso({sei:'SEI-350010/000123/2026',unidadeId:'2',categoriaId:'c01',objeto:${JSON.stringify(XS)},statusId:'s01',respPrincipalId:'${rch.id}',inclusaoSpaei:Plan._hoje(),pendencias:${JSON.stringify(XS)},obsSpaei:${JSON.stringify(XS)}})`);
     await espera(150);
     checar('20.1 — base do cenário criada (unidade, chefe, auxiliar, processo)', rch.ok && raux.ok && ev(`Plan.processos().length`) === 1);
@@ -1344,8 +1344,8 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     checar('20.7 — nome com aspas e HTML faz ida-e-volta idêntica pelo formulário (sem corromper nem duplicar escape)', nomeNoCampo === ev(`Plan.unidade('2').nome`) && ev(`Plan.unidade('2').nome`).includes('"com aspas"') && store.spaei.planUnid['2'].nome === nomeNoCampo);
 
     // regras de unicidade
-    const dup = J(`Plan.salvarMembro({unidadeId:'3',papel:'chefe',posto:'CAP PM',nome:'OUTRO',idFuncional:'900001'})`);
-    const dup2 = J(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'CAP PM',nome:'SEGUNDO CHEFE',idFuncional:'900099'})`);
+    const dup = J(`Plan.salvarMembro({unidadeId:'3',papel:'chefe',posto:'CAP PM',nome:'OUTRO',idFuncional:'900001',rg:'900001'})`);
+    const dup2 = J(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'CAP PM',nome:'SEGUNDO CHEFE',idFuncional:'900099',rg:'900099'})`);
     const dup3 = J(`Plan.salvarProcesso({sei:'350010/000123/2026',unidadeId:'3',categoriaId:'c01',objeto:'dup',statusId:'s01',inclusaoSpaei:Plan._hoje()})`);
     checar('20.8 — bloqueia ID funcional repetido, 2º chefe na mesma unidade e nº SEI repetido (com ou sem prefixo)', !dup.ok && !dup2.ok && !dup3.ok);
 
@@ -1359,6 +1359,66 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     checar('20.9 — consulta: sem botões de edição, sem formulário e escrita recusada', !/Editar unidade|Adicionar integrante|Novo processo|Sincronizar com o SEI/.test(txC) && rSave.ok === false && !abriu);
     ev(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}`);
     checar('20.10 — zero erro JS não tratado no grupo 20', errosJs.length === 0, errosJs.join(' | '));
+  }
+
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 21 — RG do chefe e dos auxiliares (até 6 dígitos; exibido 82.061 / 112.319)
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    const ev = c => window.eval(c);
+    const J = c => JSON.parse(window.eval(`JSON.stringify(${c})`));
+    window.eval(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}; _fbOk = true; _fbSynced = true;`);
+    ev(`Plan.inicializarUnidades()`);
+    const base = o => JSON.stringify(Object.assign({ unidadeId: '1', papel: 'auxiliar', posto: '1º SGT PM', nome: 'FULANO DE TAL', idFuncional: '5000001', funcao: 'Analista' }, o));
+    checar('21.1 — formatação: 82061→82.061, 112319→112.319, 5→5, 1234→1.234, "82.061"→82.061, vazio→vazio', ev(`[82061,'112319','5','1234','82.061',''].map(v=>Plan.fmtRG(v)).join('|')`) === '82.061|112.319|5|1.234|82.061|');
+    checar('21.2 — RG é obrigatório', J(`Plan.salvarMembro(${base({})})`).erros.some(e => /Informe o RG/.test(e)));
+    const ruins = ['1234567', '112.3190', '82a061', '0', '000000', '82-061', '..'];
+    checar('21.3 — recusa RG com mais de 6 dígitos, letras, símbolos ou zeros', ruins.every(v => J(`Plan.salvarMembro(${base({ rg: v, idFuncional: 'x' + v })})`).ok === false));
+    const r1 = J(`Plan.salvarMembro(${base({ papel: 'chefe', rg: '82.061', idFuncional: '9001', designadoEm: '2026-01-01' })})`);
+    const r2 = J(`Plan.salvarMembro(${base({ rg: '112319', idFuncional: '9002', nome: 'BELTRANO' })})`);
+    const r3 = J(`Plan.salvarMembro(${base({ rg: ' 5.432 ', idFuncional: '9003', nome: 'CICLANO' })})`);
+    await espera(120);
+    checar('21.4 — aceita 82.061, 112319 e " 5.432 " (chefe e auxiliares)', r1.ok && r2.ok && r3.ok);
+    checar('21.5 — grava só os dígitos', ev(`Plan.membro('${r1.id}').rg`) === '82061' && ev(`Plan.membro('${r2.id}').rg`) === '112319' && ev(`Plan.membro('${r3.id}').rg`) === '5432' && store.spaei.planMemb[r1.id].rg === '82061');
+    checar('21.6 — RG repetido recusado (mesmo digitado com ponto) em qualquer unidade', J(`Plan.salvarMembro(${base({ unidadeId: '3', rg: '82061', idFuncional: '9100' })})`).ok === false && J(`Plan.salvarMembro(${base({ unidadeId: '3', rg: '112.319', idFuncional: '9101' })})`).ok === false);
+    checar('21.7 — editar o próprio integrante mantendo o RG é permitido', J(`Plan.salvarMembro(${base({ rg: '112.319', idFuncional: '9002', nome: 'BELTRANO ALTERADO' })}, '${r2.id}')`).ok === true);
+    // formulário real
+    ev(`Plan.ir('u:1')`); ev(`Plan.formMembro('1',null,'auxiliar')`);
+    const campo = window.document.getElementById('pl-m-rg');
+    checar('21.8 — formulário tem o campo "RG *" numérico, máx. 7 caracteres e exemplo', !!campo && campo.getAttribute('inputmode') === 'numeric' && campo.getAttribute('maxlength') === '7' && /82\.061/.test(campo.getAttribute('placeholder')) && /RG \*/.test(window.document.querySelector('label[for="pl-m-rg"]').textContent));
+    const digita = v => { campo.value = v; campo.dispatchEvent(new window.Event('input', { bubbles: true })); return campo.value; };
+    checar('21.9 — máscara ao digitar: 82061→82.061; 112319→112.319; colar "RG 1.234.567-8"→123.456 (corta em 6); letras removidas', digita('82061') === '82.061' && digita('112319') === '112.319' && digita('RG 1.234.567-8') === '123.456' && digita('ab') === '');
+    // salvar pelo formulário e reabrir mostrando formatado
+    window.document.getElementById('pl-m-posto').value = 'CB PM'; window.document.getElementById('pl-m-nome').value = 'NOVO AUXILIAR'; window.document.getElementById('pl-m-idf').value = '9200'; window.document.getElementById('pl-m-func').value = 'Apoio';
+    digita('4321');
+    ev(`Plan._salvarFormMembro('1','','auxiliar')`); await espera(120);
+    const novo = J(`Plan.membros('1').find(m=>m.nome==='NOVO AUXILIAR')`);
+    ev(`Plan.formMembro('1','${novo.id}')`);
+    checar('21.10 — salvo pelo formulário (4321 → grava 4321) e reabre exibindo 4.321', novo.rg === '4321' && window.document.getElementById('pl-m-rg').value === '4.321');
+    ev(`Modal.close()`);
+    // exibição
+    ev(`Plan.ir('u:1')`);
+    const tx = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    checar('21.11 — cards do chefe e dos auxiliares mostram "RG: 82.061", "RG: 112.319"', /RG: 82\.061/.test(tx) && /RG: 112\.319/.test(tx) && /RG: 5\.432/.test(tx));
+    let htmlFicha = ''; const abrirOrig = window.open;
+    window.open = () => ({ document: { write: h => { htmlFicha += h; }, close() {} }, focus() {}, print() {}, close() {} });
+    ev(`Plan.fichas('1')`); window.open = abrirOrig;
+    checar('21.12 — ficha impressa tem linha "RG" com o número formatado (chefe e auxiliares)', /<th>RG<\/th><td>82\.061<\/td>/.test(htmlFicha) && /<th>RG<\/th><td>112\.319<\/td>/.test(htmlFicha), htmlFicha.length + ' bytes');
+    const rel = J(`Plan.dadosRelatorio(1,'')`);
+    const iRg = rel.thead.indexOf('RG');
+    checar('21.13 — relatório da equipe tem coluna RG formatada e mesmo nº de colunas', iRg > 0 && rel.rows.some(l => l[iRg] === '82.061') && rel.rows.some(l => l[iRg] === '112.319') && rel.rows.every(l => l.length === rel.thead.length));
+    checar('21.14 — busca global encontra por 82061, 82.061 e 112319', ['82061', '82.061', '112319'].every(q => J(`Plan.buscar('${q}').mem.length`) >= 1));
+    // legado sem RG: aviso
+    ev(`_mem['planMemb']=Object.assign({}, _mem['planMemb'], {'990005':{id:'990005',unidadeId:'4',papel:'auxiliar',posto:'SD PM',nome:'LEGADO',idFuncional:'77',ativo:true,excluido:false,ordem:9}})`);
+    const eq = J(`Plan.equipeIncompleta(Plan.unidade('4'))`);
+    ev(`Plan.ir('u:4')`);
+    checar('21.15 — integrante antigo sem RG aparece como cadastro incompleto ("RG") e o card diz "não informado"', eq.incompleta && eq.integrantes[0].faltas.join() === 'RG' && /RG: não informado/.test(window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ')));
+    // XSS e histórico
+    checar('21.16 — histórico registra a mudança de RG do integrante', (ev(`Plan.salvarMembro(${base({ rg: '99.999', idFuncional: '9002', nome: 'BELTRANO ALTERADO' })}, '${r2.id}')`), true) && ev(`Object.values(Plan._map('planHist')).some(h=>h.mudancas&&h.mudancas.some(m=>m.campo==='RG'&&m.antes==='112319'&&m.depois==='99999'))`));
+    checar('21.17 — zero erro JS não tratado no grupo 21', errosJs.length === 0, errosJs.join(' | '));
   }
 
   const falhas = resultados.filter(r => !r).length;
