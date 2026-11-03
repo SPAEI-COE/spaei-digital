@@ -848,6 +848,214 @@ async function main() {
     checar('16.7 — zero erro JS não tratado no grupo 16', errosJs.length === 0, errosJs.join(' | '));
   }
 
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 17 — Planejamento COE (v6.97): equipes das unidades, processos SEI,
+  // painel, alertas, relatórios, auditoria, permissões e segurança de interface.
+  // ───────────────────────────────────────────────────────────
+  {
+    const { window, store, errosJs } = await bootApp();
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+    const ev = c => window.eval(c);
+    const J = c => JSON.parse(window.eval(`JSON.stringify(${c})`));
+    window.eval(`
+      DB.set('efetivo', [{rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', chefe:false, admin:true}], 'seed');
+      Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true};
+      _fbOk = true; _fbSynced = true;
+      window.__addDias = (n)=>{ const d=new Date(Plan._n(Plan._hoje())*86400000 + n*86400000); return d.toISOString().slice(0,10); };
+    `);
+    await espera(50);
+    const efetivoAntes = JSON.stringify(ev(`DB.get('efetivo')`));
+    const processosAntes = JSON.stringify(ev(`DB.get('processos')`));
+
+    checar('17.1 — versão 6.97 e módulo registrado na navegação', ev(`APP_VERSAO`) === '6.97' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
+    ev(`buildNav()`);
+    checar('17.2 — menu lateral tem o botão "Planejamento COE"', /Planejamento COE/.test(window.document.getElementById('sb-nav').textContent));
+
+    // estado inicial: sem dados fictícios
+    ev(`Nav.go('planejamento')`); await espera(30);
+    let txt = window.document.getElementById('s-planejamento').textContent;
+    checar('17.3 — estado inicial vazio, sem dado inventado (oferece criar as 6 unidades)', /Nenhuma unidade cadastrada/.test(txt) && ev(`Plan.unidades().length`) === 0 && ev(`Plan.processos().length`) === 0);
+    checar('17.4 — inicializarUnidades cria exatamente as 6 siglas, sem nome inventado, e é idempotente', ev(`Plan.inicializarUnidades()`) === 6 && ev(`Plan.inicializarUnidades()`) === 0
+      && JSON.stringify(ev(`Plan.unidades().map(u=>u.sigla)`)) === '["CHOQUE","BOPE","BAC","GAM","CIEsPP","BTM"]' && ev(`Plan.unidades().every(u=>u.nome==='')`));
+
+    // permissões: consulta não grava
+    ev(`Auth.user = {rg:'90001', nome:'CONSULTA', posto:'SD', admin:false}`);
+    await espera(150);
+    const rNeg = J(`Plan.salvarUnidade({sigla:'XYZ'})`);
+    await espera(60);
+    const nPlanUnid = Object.keys(store.spaei.planUnid || {}).length;
+    checar('17.5 — perfil sem administração: gravação recusada na função (não só escondida na tela)', rNeg.ok === false && ev(`Plan.unidades().length`) === 6 && nPlanUnid === 6
+      && J(`Plan.salvarMembro({unidadeId:'1',papel:'chefe',posto:'CAP',nome:'X',idFuncional:'1'})`).ok === false && J(`Plan.salvarProcesso({sei:'1'})`).ok === false);
+    ev(`Nav.go('planejamento')`);
+    checar('17.6 — perfil de consulta não vê botões de edição nem a aba Configurações', !/Novo processo|Editar unidade|Configurações/.test(window.document.getElementById('s-planejamento').textContent));
+    ev(`Auth.user = {rg:'82061', nome:'ELOMIR GUMIERO DE MORAES', posto:'2º SGT PM', admin:true}`);
+
+    // integrantes: validação
+    const m0 = (o) => JSON.stringify(Object.assign({unidadeId:'1',papel:'chefe',posto:'MAJ PM',nome:'CHEFE UM',idFuncional:'111111',cpf:'',tel:'(21) 99999-0001',email:'chefe@exemplo.org',designadoEm:'2026-01-10'}, o||{}));
+    checar('17.7 — integrante sem posto/nome/ID é recusado com mensagens', J(`Plan.salvarMembro(${m0({posto:'',nome:'',idFuncional:''})})`).ok === false && J(`Plan.salvarMembro(${m0({posto:'',nome:'',idFuncional:''})})`).erros.length >= 3);
+    checar('17.8 — CPF inválido recusado; e-mail e telefone inválidos recusados', J(`Plan.salvarMembro(${m0({cpf:'111.111.111-11'})})`).ok === false && J(`Plan.salvarMembro(${m0({email:'sem-arroba'})})`).ok === false && J(`Plan.salvarMembro(${m0({tel:'123'})})`).ok === false);
+    const rCh = J(`Plan.salvarMembro(${m0({cpf:'529.982.247-25'})})`);
+    checar('17.9 — chefe válido salvo; CPF gravado SOMENTE mascarado (nunca completo no banco)', rCh.ok === true && /\*\*\*\.982\.247-\*\*/.test(ev(`Plan.membro('${rCh.id}').cpfMask`)) && !JSON.stringify(store).includes('52998224725') && !JSON.stringify(store).includes('529.982.247-25') && ev(`Plan.membro('${rCh.id}').cpf`) === undefined);
+    checar('17.10 — ID funcional duplicado recusado', J(`Plan.salvarMembro(${m0({nome:'OUTRO',papel:'auxiliar',funcao:'Apoio'})})`).ok === false);
+    checar('17.11 — segundo chefe na mesma unidade recusado (chefe único)', J(`Plan.salvarMembro(${m0({nome:'SEGUNDO CHEFE',idFuncional:'222222'})})`).ok === false);
+
+    // auxiliares ilimitados + promoção + saída + exclusão lógica
+    const aux = (n, o) => JSON.stringify(Object.assign({unidadeId:'1',papel:'auxiliar',posto:'SGT PM',nome:'AUX '+n,idFuncional:String(300000+n),tel:'(21) 98888-'+String(1000+n),funcao:'Planejamento',ingressoEm:'2026-02-01'}, o||{}));
+    const ids = [];
+    for (let i = 1; i <= 62; i++) { const r = J(`Plan.salvarMembro(${aux(i)})`); if (r.ok) ids.push(r.id); }
+    await espera(80);
+    checar('17.12 — equipe com mais de 60 auxiliares: todos salvos (sem limite) e gravados por id no banco', ids.length === 62 && Object.keys(store.spaei.planMemb).length === 63, Object.keys(store.spaei.planMemb).length);
+    const idAux1 = ids[0], idChefe = rCh.id;
+    checar('17.13 — promover auxiliar a chefe troca os papéis sem apagar ninguém', J(`Plan.promoverChefe('${idAux1}')`).ok === true && ev(`Plan.chefe('1').id`) === idAux1 && ev(`Plan.membro('${idChefe}').papel`) === 'auxiliar' && ev(`Plan.membros('1').filter(m=>m.papel==='chefe').length`) === 1);
+    checar('17.14 — saída da equipe preserva o cadastro e o histórico', J(`Plan.registrarSaida('${ids[1]}','2026-05-01','Transferência')`).ok === true && ev(`Plan.membro('${ids[1]}').ativo`) === false && ev(`Plan.membros('1',true).some(m=>m.id==='${ids[1]}')`) && ev(`Object.values(Plan._map('planHist')).some(h=>h.registroId==='${ids[1]}'&&/sa[ií]da/i.test(h.acao))`));
+    const _e1 = J(`Plan.excluirMembro('${ids[2]}')`).ok === true && !ev(`Plan.membros('1').some(m=>m.id==='${ids[2]}')`);
+    await espera(100);
+    const _e2 = store.spaei.planMemb[ids[2]].excluido === true;
+    const _e3 = J(`Plan.restaurarMembro('${ids[2]}')`).ok === true && ev(`Plan.membros('1').some(m=>m.id==='${ids[2]}')`);
+    checar('17.15 — exclusão é lógica: some das listas, permanece no banco e pode ser restaurada', _e1 && _e2 && _e3, [_e1,_e2,_e3].join(','));
+    checar('17.16 — reordenar auxiliares funciona e não mexe no chefe', J(`Plan.moverMembro('${ids[4]}',-1)`).ok === true && ev(`Plan.chefe('1').id`) === idAux1);
+
+    // processos
+    const pr = (o) => JSON.stringify(Object.assign({sei:'SEI-330001/000123/2026',unidadeId:'1',demandante:'Seção X',categoriaId:'c01',objeto:'Aquisição de material de teste',descricao:'',statusId:'s01',respPrincipalId:idChefe,envolvidos:[],abertura:'2026-03-01',inclusaoSpaei:'2026-03-02',proxProv:'Enviar ao setor',prazo:window.eval('__addDias(30)'),pendencias:'',link:''}, o||{}));
+    checar('17.17 — processo inválido: sem SEI/objeto/categoria, prazo antes da abertura, link não http(s)', J(`Plan.salvarProcesso(${pr({sei:'',objeto:'',categoriaId:''})})`).ok === false && J(`Plan.salvarProcesso(${pr({prazo:'2026-01-01'})})`).ok === false && J(`Plan.salvarProcesso(${pr({link:'javascript:alert(1)'})})`).ok === false);
+    const p1 = J(`Plan.salvarProcesso(${pr({})})`);
+    checar('17.18 — processo válido salvo; SEI duplicado (mesmos dígitos, outro formato) recusado', p1.ok === true && J(`Plan.salvarProcesso(${pr({sei:'330001/000123/2026'})})`).ok === false);
+    ev(`Plan.salvarProcesso(${pr({sei:'SEI-330002/000001/2026',objeto:'Obra teste',categoriaId:'c04',statusId:'s13',prazo:''})})`);
+    ev(`Plan.salvarProcesso(${pr({sei:'SEI-330003/000001/2026',objeto:'Suspenso teste',statusId:'s12'})})`);
+    await espera(50);
+    let st = J(`Plan.stats()`);
+    checar('17.19 — indicadores calculados dos registros reais (3 processos: 1 andamento, 1 concluído, 1 suspenso)', st.processos === 3 && st.andamento === 1 && st.concluidos === 1 && st.suspensos === 1 && st.policiais === 62 && st.chefes === 1 && st.auxiliares === 61, JSON.stringify({p:st.processos,a:st.andamento,c:st.concluidos,s:st.suspensos,pol:st.policiais}));
+    ev(`Plan.salvarProcesso(${pr({statusId:'s13'})}, '${p1.id}')`);
+    st = J(`Plan.stats()`);
+    checar('17.20 — concluir um processo atualiza os indicadores e grava a data de conclusão', st.andamento === 0 && st.concluidos === 2 && /^\d{4}-\d{2}-\d{2}$/.test(ev(`Plan.processo('${p1.id}').concluidoEm`)));
+    const hProc = J(`Object.values(Plan._map('planHist')).filter(h=>h.registroId==='${p1.id}'&&h.acao==='editou')`);
+    checar('17.21 — histórico guarda quem, quando, unidade e valores ANTES/DEPOIS', hProc.length === 1 && hProc[0].autorNome === 'ELOMIR GUMIERO DE MORAES' && !!hProc[0].ts && hProc[0].unidadeSigla === 'CHOQUE' && hProc[0].mudancas.some(m => m.campo === 'Fase atual' && m.antes === 'Em planejamento' && m.depois === 'Concluído'), JSON.stringify(hProc[0] && hProc[0].mudancas));
+const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().length`) === 2;
+    await espera(100);
+    const _x2 = store.spaei.planProc[p1.id].excluido === true;
+    const _x3 = J(`Plan.restaurarProcesso('${p1.id}')`).ok && ev(`Plan.processos().length`) === 3;
+    checar('17.22 — exclusão lógica de processo + restauração, com histórico', _x1 && _x2 && _x3, [_x1,_x2,_x3].join(','));
+
+    // alertas
+    const pa = J(`Plan.salvarProcesso(${pr({sei:'SEI-330009/000001/2026',objeto:'Alerta teste',statusId:'s06',prazo:window.eval('__addDias(3)'),pendencias:'Falta parecer'})})`);
+    const setDias = (id, n) => ev(`(function(){ const p=Plan.processo('${id}'); Plan._gravar('planProc','${id}',{...p,atualizadoEmData:__addDias(${-n})},'t'); })()`);
+    setDias(pa.id, 20);
+    let al = J(`Plan.alertasProcesso(Plan.processo('${pa.id}'))`);
+    checar('17.23 — 20 dias sem atualização: 1º alerta sim, 2º não; prazo próximo; pendência', al.sem1 === true && al.sem2 === false && al.prazoProximo === true && al.comPendencia === true && ev(`Plan.rotuloAtualizacao(Plan.alertasProcesso(Plan.processo('${pa.id}')))`) === 'Necessita atualização');
+    setDias(pa.id, 40);
+    al = J(`Plan.alertasProcesso(Plan.processo('${pa.id}'))`);
+    checar('17.24 — 40 dias sem atualização dispara o 2º alerta', al.sem1 === true && al.sem2 === true);
+    setDias(pa.id, 5);
+    checar('17.25 — 5 dias: sem alerta de atualização', J(`Plan.alertasProcesso(Plan.processo('${pa.id}'))`).sem1 === false);
+    ev(`Plan._gravar('planProc','${pa.id}',{...Plan.processo('${pa.id}'),prazo:__addDias(-2)},'t')`);
+    checar('17.26 — prazo vencido detectado', J(`Plan.alertasProcesso(Plan.processo('${pa.id}'))`).prazoVencido === true);
+    const cfgBase = J(`Plan.cfg()`);
+    checar('17.27 — períodos de alerta são configuráveis (10 dias passa a alertar os 5 dias? não; 3 dias sim)', J(`Plan.salvarCfg({...Plan.cfg(),alertas:{sem1:3,sem2:9,prazo:7}})`).ok && J(`Plan.alertasProcesso(Plan.processo('${pa.id}'))`).sem1 === true);
+    checar('17.28 — configuração inválida recusada (2º < 1º, fora de 1–365, status em uso removido)', J(`Plan.salvarCfg({...Plan.cfg(),alertas:{sem1:10,sem2:5,prazo:7}})`).ok === false && J(`Plan.salvarCfg({...Plan.cfg(),alertas:{sem1:0,sem2:5,prazo:7}})`).ok === false && J(`Plan.salvarCfg({...Plan.cfg(),statuses:Plan.cfg().statuses.filter(s=>s.id!=='s06')})`).ok === false);
+    ev(`Plan.salvarCfg({...Plan.cfg(),alertas:{sem1:15,sem2:30,prazo:7}})`);
+    checar('17.29 — 14 status padrão e categorias existem e são editáveis (renomear status)', cfgBase.statuses.length === 14 && J(`Plan.salvarCfg({...Plan.cfg(),statuses:Plan.cfg().statuses.map(s=>s.id==='s01'?{...s,nome:'Planejamento inicial'}:s)})`).ok && ev(`Plan.status('s01').nome`) === 'Planejamento inicial');
+    ev(`Plan.salvarCfg({...Plan.cfg(),statuses:Plan.cfg().statuses.map(s=>s.id==='s01'?{...s,nome:'Em planejamento'}:s)})`);
+
+    // XSS: dados maliciosos viram texto
+    const xss = '<img src=x onerror="window.__x=1">';
+    ev(`Plan.salvarMembro({unidadeId:'2',papel:'chefe',posto:'CAP PM',nome:${JSON.stringify(xss)},idFuncional:'777001',tel:'(21) 97777-0001',designadoEm:'2026-01-01'})`);
+    ev(`Plan.salvarProcesso({sei:'SEI-999/1/2026',unidadeId:'2',categoriaId:'c01',objeto:${JSON.stringify('"><script>window.__x=2</script>' + xss)},statusId:'s01',inclusaoSpaei:Plan._hoje()})`);
+    for (const t of ['geral', 'u:2', 'proc', 'hist']) { ev(`Plan.ir('${t}')`); }
+    ev(`Plan.ir('u:2')`);
+    const dom = window.document.getElementById('s-planejamento');
+    checar('17.30 — nome/objeto com HTML malicioso aparece como TEXTO (nenhum <img>/<script> injetado, nada executa)', !dom.querySelector('img[src="x"]') && !dom.querySelector('script') && window.__x === undefined && /<img src=x/.test(dom.textContent));
+    ev(`Plan.ficha(Plan.processos().find(p=>p.unidadeId==='2').id)`);
+    checar('17.31 — ficha do processo escapa conteúdo malicioso', !window.document.getElementById('modal-body').querySelector('img[src="x"]') && !window.document.getElementById('modal-body').querySelector('script') && window.__x === undefined);
+    ev(`Modal.close()`);
+    // foto adulterada no banco não quebra atributo
+    ev(`(function(){ const m=Plan.chefe('2'); Plan._gravar('planFotos',String(m.id),'x" onerror="window.__x=3',"t"); })()`);
+    ev(`Plan.ir('u:2')`);
+    checar('17.32 — foto adulterada no banco é ignorada (só data:image válida vira <img>)', window.__x === undefined && !window.document.getElementById('s-planejamento').querySelector('img[onerror]'));
+    checar('17.33 — _imgOk aceita data:image/png;base64 e recusa javascript:/http', ev(`Plan._imgOk('data:image/png;base64,iVBORw0KGgo=')`) !== null && ev(`Plan._imgOk('javascript:alert(1)')`) === null && ev(`Plan._imgOk('http://x/y.png')`) === null);
+
+    // telas: nenhuma aba pode dar erro
+    const abas = ['geral', 'u:1', 'u:2', 'u:3', 'u:4', 'u:5', 'u:6', 'proc', 'rel', 'hist', 'cfg'];
+    let abasOk = true; let abasDet = '';
+    for (const a of abas) { try { ev(`Plan.ir('${a}')`); const t = window.document.getElementById('s-planejamento').textContent; if (/Não foi possível desenhar/.test(t) || t.length < 50) { abasOk = false; abasDet += a + ' '; } } catch (e) { abasOk = false; abasDet += a + ':' + e.message + ' '; } }
+    checar('17.34 — todas as abas (geral, 6 unidades, processos, relatórios, histórico, configurações) desenham sem erro', abasOk, abasDet);
+    ev(`Plan.ir('geral')`);
+    txt = window.document.getElementById('s-planejamento').textContent.replace(/\s+/g, ' ');
+    checar('17.35 — visão geral mostra os 11 indicadores, os 6 gráficos e o PAINEL GERAL', ['Unidades', 'Policiais nas equipes', 'Chefes de seção', 'Auxiliares', 'Processos SEI', 'Em andamento', 'Concluídos', 'Suspensos', 'Com pendências', 'Prazo próximo/vencido', 'Sem atualização recente'].every(k => txt.includes(k)) && window.document.querySelectorAll('#s-planejamento .pl-chart').length === 6 && /PAINEL GERAL DE ACOMPANHAMENTO DOS PROCESSOS/.test(txt));
+    checar('17.36 — nunca usa a palavra "parado" para processo (só "Necessita atualização")', !/parado/i.test(txt) && /Necessita atualização|Sem atualização/.test(txt + ev(`Plan.rotuloAtualizacao({sem1:true})`)));
+    checar('17.37 — gráficos e tabela usam só dados reais (rosca soma = processos com categoria)', ev(`Plan.stats().porCategoria.reduce((s,x)=>s+x.n,0)`) === ev(`Plan.processos().length`));
+
+    // painel: filtro, busca, ordenação, paginação
+    for (let i = 0; i < 40; i++) ev(`Plan.salvarProcesso({sei:'SEI-${500000 + i}/000001/2026',unidadeId:'${(i % 3) + 1}',categoriaId:'c0${(i % 9) + 1}',objeto:'Objeto de teste ${i}',statusId:'s0${(i % 8) + 1}',inclusaoSpaei:Plan._hoje(),prazo:__addDias(${i})})`);
+    await espera(120);
+    ev(`Plan._fProc={q:'',un:'',resp:'',cat:'',sit:'',ord:'prazo',dir:1,pag:1,exc:false}`);
+    const r0 = J(`(function(){const r=Plan.procLinhas();return {total:r.total,paginas:r.paginas,n:r.linhas.length}})()`);
+    checar('17.38 — paginação: 15 por página, total e páginas coerentes', r0.total >= 45 && r0.n === 15 && r0.paginas === Math.ceil(r0.total / 15), JSON.stringify(r0));
+    checar('17.39 — filtro por unidade, categoria e busca por número SEI (só dígitos)', J(`(function(){Plan._fProc.un='2';const a=Plan.procLinhas().todas.every(x=>x.p.unidadeId==='2');Plan._fProc.un='';Plan._fProc.q='500007';const b=Plan.procLinhas().todas.map(x=>x.p.sei);Plan._fProc.q='';Plan._fProc.cat='c03';const c=Plan.procLinhas().todas.every(x=>x.p.categoriaId==='c03');Plan._fProc.cat='';return a&&b.length===1&&/500007/.test(b[0])&&c})()`));
+    checar('17.40 — ordenação alterna crescente/decrescente por coluna', J(`(function(){Plan._fProc.ord='sei';Plan._fProc.dir=1;const a=Plan.procLinhas().todas[0].p.sei;Plan._fProc.dir=-1;const b=Plan.procLinhas().todas[0].p.sei;Plan._fProc.ord='prazo';Plan._fProc.dir=1;return a!==b})()`));
+    checar('17.41 — filtro "prazo próximo/vencido" e "sem responsável" funcionam', J(`(function(){Plan._fProc.sit='prazo';const a=Plan.procLinhas().todas.every(x=>x.a.prazoProximo||x.a.prazoVencido);Plan._fProc.sit='semresp';const b=Plan.procLinhas().todas.every(x=>x.a.semResp);Plan._fProc.sit='';return a&&b})()`));
+    ev(`Plan.ir('proc')`);
+    checar('17.42 — tabela do painel desenha 15 linhas clicáveis e o calendário administrativo', window.document.querySelectorAll('#pl-painel-tab tbody tr').length === 15 && /Calendário administrativo/.test(window.document.getElementById('s-planejamento').textContent));
+    ev(`Plan._pagina(1)`);
+    checar('17.43 — próxima página mostra outros processos', /página 2 de/.test(window.document.getElementById('pl-painel-tab').textContent));
+
+    // busca global
+    checar('17.44 — busca global encontra unidade, integrante (por ID funcional) e processo', J(`(function(){const a=Plan.buscar('choque');const b=Plan.buscar('777001');const c=Plan.buscar('500007');return a.un.length===1&&b.mem.length===1&&c.proc.length===1})()`));
+
+    // distribuição / pendências
+    checar('17.45 — distribuição de demandas e painel de pendências por unidade coerentes', ev(`Plan.pendenciasPorUnidade().length`) === 6 && J(`Plan.distribuicao()`).linhas.length >= 60);
+
+    // relatórios
+    window.eval(`window.__html=''; window.open=function(){ return {document:{write:function(h){ window.__html+=h; },close:function(){}}}; };`);
+    const rels = [1, 2, 3, 4, 5].map(n => J(`Plan.dadosRelatorio(${n})`));
+    checar('17.46 — os 5 relatórios geram dados reais (colunas = linhas)', rels.every(r => r.rows.length > 0 && r.rows.every(l => l.length === r.thead.length)), rels.map(r => r.rows.length).join(','));
+    checar('17.47 — relatório 1 mostra CPF só mascarado; relatório 3 tem linha TOTAL', !JSON.stringify(rels[0]).includes('52998224725') && rels[0].rows.some(l => /\*\*\*/.test(l[5])) && rels[2].rows.some(l => l[0] === 'TOTAL') && rels[2].secoes.length === 2);
+    ev(`Plan.exportar(2,'PDF')`);
+    checar('17.48 — PDF: cabeçalho institucional, data e conteúdo escapado', /SPAEI DIGITAL/.test(window.__html) && /Gerado em/.test(window.__html) && /Processos SEI por Unidade/.test(window.__html) && !/<script>window\.__x=2/.test(window.__html) && !/<img src=x/.test(window.__html) && /&lt;img/.test(window.__html));
+    window.__html = '';
+    ev(`Plan.exportar(3,'PDF')`);
+    checar('17.49 — PDF do consolidado tem 2 folhas (resumo + relação de processos)', (window.__html.match(/class="folha"/g) || []).length === 2);
+    ev(`Plan.exportar(2,'PDF','2')`); 
+    checar('17.50 — filtro por unidade vai para o título/nota do relatório', /CHOQUE|BOPE/.test(window.__html) && /Unidade: BOPE/.test(window.__html));
+    // CSV
+    let blobTxt = '';
+    window.eval(`URL.createObjectURL=function(b){ window.__blob=b; return 'blob:x'; }; URL.revokeObjectURL=function(){};`);
+    ev(`Plan.salvarProcesso({sei:'SEI-880/1/2026',unidadeId:'3',categoriaId:'c01',objeto:'=HYPERLINK("http://mal")',statusId:'s01',inclusaoSpaei:Plan._hoje()})`);
+    ev(`Plan.exportar(2,'CSV','3')`);
+    blobTxt = await new Promise(res => { const fr = new (window.FileReader)(); fr.onload = () => res(fr.result); fr.readAsText(window.__blob); });
+    checar('17.51 — CSV protegido contra injeção de fórmula e com BOM/cabeçalho', /^﻿?"UNIDADE"/.test(blobTxt) && blobTxt.includes(`"'=HYPERLINK`) && !/,"=HYPERLINK/.test(blobTxt));
+    checar('17.52 — relatório sem dados avisa em vez de exportar vazio', (() => { ev(`Toast.warning=function(m){ window.__warn=m; }`); ev(`Plan.exportar(1,'CSV','6')`); return /Não há registros/.test(window.__warn || ''); })());
+
+    // ficha individual
+    window.__html = '';
+    ev(`Plan.fichas('1','${idAux1}')`);
+    checar('17.53 — ficha individual imprimível: dados do integrante, CPF mascarado, sem HTML injetado', /FICHA INDIVIDUAL/.test(window.__html) && /AUX 1/.test(window.__html) && !/<img src=x/.test(window.__html));
+    window.__html = '';
+    ev(`Plan.fichas('2')`);
+    checar('17.54 — ficha da equipe com nome malicioso fica escapada', /&lt;img src=x/.test(window.__html) && !/<img src=x/.test(window.__html));
+
+    // comunicados / unidade / logomarca
+    checar('17.55 — comunicado publicado e exclusão lógica', J(`Plan.salvarComunicado({titulo:'Aviso',texto:'Atualizar cadastros',unidadeId:''})`).ok && ev(`Plan.comunicados().length`) === 1 && J(`Plan.excluirComunicado(Plan.comunicados()[0].id)`).ok && ev(`Plan.comunicados().length`) === 0);
+    checar('17.56 — editar dados da unidade e registrar no histórico com antes/depois', J(`Plan.salvarUnidade({sigla:'CHOQUE',nome:'Batalhão de Choque (teste)',secao:'Seção de Projetos',situacao:'Ativa',obs:''},'1')`).ok && ev(`Object.values(Plan._map('planHist')).some(h=>h.entidade==='unidade'&&h.mudancas.some(m=>m.campo==='Nome completo'&&m.depois==='Batalhão de Choque (teste)'))`));
+    checar('17.57 — sigla de unidade duplicada recusada', J(`Plan.salvarUnidade({sigla:'bope',nome:'',secao:'',situacao:'Ativa'})`).ok === false);
+    checar('17.58 — logomarca: grava, aparece na aba e pode ser removida', ev(`Plan.salvarLogo('1','data:image/png;base64,iVBORw0KGgo=')`) === true && (ev(`Plan.ir('u:1')`), /Logomarca CHOQUE/.test(window.document.getElementById('s-planejamento').innerHTML)) && ev(`Plan.salvarLogo('1',null)`) === true && ev(`Plan.logoUnidade('1')`) === null);
+    checar('17.59 — cadastro incompleto sinalizado (unidades sem nome/chefe/auxiliares)', ev(`Plan.equipeIncompleta(Plan.unidade('5')).incompleta`) === true && ev(`Plan.stats().equipesIncompletas`) >= 4);
+
+    // persistência no "banco"
+    await espera(150);
+    checar('17.60 — tudo persistido no RTDB mock por id (unidades, integrantes, processos, histórico, config)', ['planUnid', 'planMemb', 'planProc', 'planHist', 'planCfg'].every(k => store.spaei[k] && Object.keys(store.spaei[k]).length > 0) && Object.keys(store.spaei.planProc).length === ev(`Plan.processos(true).length`));
+    checar('17.61 — dados existentes (efetivo, processos antigos) permanecem intactos', JSON.stringify(ev(`DB.get('efetivo')`)) === efetivoAntes && JSON.stringify(ev(`DB.get('processos')`)) === processosAntes);
+    checar('17.62 — histórico é append-only (nenhuma entrada some após as edições)', ev(`Object.keys(Plan._map('planHist')).length`) === Object.keys(store.spaei.planHist).length && Object.keys(store.spaei.planHist).length > 100);
+
+    // modo TV bloqueia gravação
+    ev(`safeSet('local','SPAEI_TV_MODE','1')`);
+    const antesTV = Object.keys(store.spaei.planUnid).length;
+    checar('17.63 — Modo TV: tela desenha sem edição e nenhuma gravação ocorre', J(`Plan.salvarUnidade({sigla:'ZZZ'})`).ok === false && (ev(`Plan.ir('geral')`), !/Novo processo/.test(window.document.getElementById('s-planejamento').textContent)) && ev(`Plan.unidades().length`) === 6);
+    ev(`safeSet('local','SPAEI_TV_MODE','0')`);
+
+    checar('17.64 — zero erro JS não tratado no grupo 17', errosJs.length === 0, errosJs.join(' | '));
+  }
+
   const falhas = resultados.filter(r => !r).length;
   console.log('');
   console.log(falhas === 0 ? `=== TODOS OS ${resultados.length} TESTES PASSARAM ===` : `=== ${falhas} DE ${resultados.length} TESTE(S) FALHARAM ===`);
