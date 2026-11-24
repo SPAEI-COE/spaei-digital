@@ -11,7 +11,9 @@ async function bootApp(opts) {
   opts = opts || {};
   const latencyMs = opts.latencyMs === undefined ? 5 : opts.latencyMs;
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');
-  const { fb, store, appCheckCalls } = buildMockFirebase(latencyMs);
+  const { fb, store, appCheckCalls, ctl } = buildMockFirebase(latencyMs, opts.store);
+  if (opts.otimista) ctl.otimista = true;
+  if (opts.conectar) ctl.conectar = true;
   const htmlSemFbSdk = html.replace(/<script src="https:\/\/www\.gstatic\.com\/firebasejs[^"]*"><\/script>/g, '');
 
   const errosJs = [];
@@ -22,6 +24,7 @@ async function bootApp(opts) {
     pretendToBeVisual: true,
     beforeParse(window) {
       window.firebase = fb;
+      if (opts.localStorage) Object.keys(opts.localStorage).forEach(k => window.localStorage.setItem(k, opts.localStorage[k]));
       window.matchMedia = window.matchMedia || function () { return { matches: false, addListener() {}, removeListener() {} }; };
       if (!window.crypto || !window.crypto.subtle) {
         const nodeCrypto = require('crypto');
@@ -33,7 +36,7 @@ async function bootApp(opts) {
   });
 
   await new Promise(r => setTimeout(r, 300));
-  return { window: dom.window, store, errosJs, appCheckCalls };
+  return { window: dom.window, store, errosJs, appCheckCalls, ctl };
 }
 
 module.exports = { bootApp };

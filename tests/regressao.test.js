@@ -56,17 +56,23 @@ async function main() {
     const linhaFinal = store.spaei.escalaSemanas[key1]['111111'];
     checar('1.3 — merge real preserva edição concorrente (dia5) + a própria (dia1)', linhaFinal[1] === 'SOBREAVISO' && linhaFinal[5] === 'DISPENSA' && linhaFinal[3] === 'SERVIÇO', JSON.stringify(linhaFinal));
 
-    // fallback quando a transação falha
+    // v7.02: transação que falha NÃO descarta nem regrava o nó inteiro — a
+    // marcação fica na caixa de saída durável e é reenviada (grupo 22 cobre
+    // o ciclo completo: falha → reenvio → confirmação).
     window.eval(`
       const origRef = _fbDB.ref.bind(_fbDB);
-      _fbDB.ref = function(p){ const r = origRef(p); if(String(p).includes('escalaSemanas/') && String(p).split('/').length>2){ r.transaction=function(fn,cb){ setTimeout(()=>cb(new Error('falha simulada')),5); }; } return r; };
-      window.__fallback = 0;
+      window.__falhar = true;
+      _fbDB.ref = function(p){ const r = origRef(p); if(window.__falhar && String(p).includes('escalaSemanas/') && String(p).split('/').length>2){ r.transaction=function(fn,cb){ setTimeout(()=>cb(new Error('falha simulada'),false,null),5); }; } return r; };
+      window.__blob = 0;
       const origSet = DB.set.bind(DB);
-      DB.set = function(k,v,d){ if(k==='escalaSemanas') window.__fallback++; return origSet(k,v,d); };
+      DB.set = function(k,v,d){ if(k==='escalaSemanas') window.__blob++; return origSet(k,v,d); };
       Escala.setStatus('111111', 2, 'A_CRITERIO');
     `);
     await new Promise(r => setTimeout(r, 80));
-    checar('1.4 — transação falha → cai no fallback testado (DB.set blob)', window.eval('window.__fallback') > 0);
+    checar('1.4 — transação falha → marcação fica na caixa de saída (sem regravar o nó inteiro)', window.eval('escOutN()') === 1 && window.eval('window.__blob') === 0);
+    window.eval(`window.__falhar=false; EscSync._voo={}; EscSync.flush('teste');`);
+    await new Promise(r => setTimeout(r, 120));
+    checar('1.4b — reenvio entrega a marcação que falhou', window.eval('escOutN()') === 0 && store.spaei.escalaSemanas[key1]['111111'][2] === 'A_CRITERIO');
 
     // a falha simulada em 1.4 é tratada via try/catch no próprio app (fallback), não deve
     // gerar erro JS não tratado (window.onerror) — só o console.warn esperado
@@ -282,11 +288,16 @@ async function main() {
     checar('7.1 — com _fbSynced=false mas online, grava via transação atômica no "servidor" mesmo assim', !!remoto && remoto[2] === 'DISPENSA', JSON.stringify(remoto));
     checar('7.2 — NÃO usou o caminho antigo de blob (fallback) enquanto ainda dava pra usar a transação segura', window.eval('window.__blobCalls') === 0, window.eval('window.__blobCalls'));
 
-    // Continua caindo pro blob quando GENUINAMENTE offline (comportamento antigo preservado)
+    // v7.02: GENUINAMENTE offline → a marcação vai para a caixa de saída
+    // durável (nunca mais o blob inteiro) e é entregue ao reconectar.
     window.eval(`_fbOk = false;`);
     window.eval(`Escala.setStatus('333333', 4, 'FOLGA');`);
     await new Promise(r => setTimeout(r, 60));
-    checar('7.3 — genuinamente offline (_fbOk=false) ainda usa o fallback (blob) — comportamento antigo preservado', window.eval('window.__blobCalls') > 0);
+    checar('7.3 — offline (_fbOk=false): fica na caixa de saída, sem regravar o nó inteiro', window.eval('escOutN()') === 1 && window.eval('window.__blobCalls') === 0);
+    window.eval(`_fbOk = true; EscSync.flush('reconectou');`);
+    await new Promise(r => setTimeout(r, 100));
+    const remoto2 = store.spaei.escalaSemanas[key]['333333'];
+    checar('7.4 — ao reconectar entrega o dia marcado offline sem perder o anterior', remoto2[4] === 'FOLGA' && remoto2[2] === 'DISPENSA' && window.eval('escOutN()') === 0, JSON.stringify(remoto2));
   }
 
   // ───────────────────────────────────────────────────────────
@@ -868,7 +879,7 @@ async function main() {
     const efetivoAntes = JSON.stringify(ev(`DB.get('efetivo')`));
     const processosAntes = JSON.stringify(ev(`DB.get('processos')`));
 
-    checar('17.1 — versão 7.01 e módulo registrado na navegação', ev(`APP_VERSAO`) === '7.01' && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
+    checar('17.1 — versão coerente com version.json e módulo registrado na navegação', ev(`APP_VERSAO`) === JSON.parse(require('fs').readFileSync(require('path').join(__dirname,'..','version.json'),'utf-8')).v && ev(`NAV_ITEMS.some(n=>n.id==='planejamento')`) && ev(`typeof Render.planejamento`) === 'function');
     ev(`buildNav()`);
     checar('17.2 — menu lateral tem o botão "Equipe de Planejamento das Unidades Subordinadas"', /Equipe de Planejamento das Unidades Subordinadas/.test(window.document.getElementById('sb-nav').textContent));
 
@@ -1420,6 +1431,11 @@ const _x1 = J(`Plan.excluirProcesso('${p1.id}')`).ok && ev(`Plan.processos().len
     checar('21.16 — histórico registra a mudança de RG do integrante', (ev(`Plan.salvarMembro(${base({ rg: '99.999', idFuncional: '9002', nome: 'BELTRANO ALTERADO' })}, '${r2.id}')`), true) && ev(`Object.values(Plan._map('planHist')).some(h=>h.mudancas&&h.mudancas.some(m=>m.campo==='RG'&&m.antes==='112319'&&m.depois==='99999'))`));
     checar('21.17 — zero erro JS não tratado no grupo 21', errosJs.length === 0, errosJs.join(' | '));
   }
+
+  // ───────────────────────────────────────────────────────────
+  // GRUPO 22 — Marcação que "sumia" (relato 24/11/2026): caixa de saída durável
+  // ───────────────────────────────────────────────────────────
+  await require('./escala-perda.test.js').cenario(checar);
 
   const falhas = resultados.filter(r => !r).length;
   console.log('');

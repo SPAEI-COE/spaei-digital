@@ -3,9 +3,16 @@
 // .on('value')/.once/.get/.set/.remove/.update/.orderByKey/.limitToLast e
 // .transaction() com serialização real por path (fila) + latência de rede
 // simulada (não instantânea — pega bug de corrida que só latência revela).
-function buildMockFirebase(latencyMs) {
+function buildMockFirebase(latencyMs, storeCompartilhado) {
   latencyMs = latencyMs === undefined ? 5 : latencyMs;
-  const store = {};
+  // storeCompartilhado: o MESMO "servidor" entre 2 boots (simula fechar o app
+  // e abrir de novo, ou 2 aparelhos). ctl.otimista: transaction() com
+  // applyLocally (padrão do SDK real) dispara os listeners NA HORA com o valor
+  // local ainda não confirmado. ctl.congelado: a rede nunca confirma (app
+  // fechado / socket morto antes do servidor responder).
+  const store = storeCompartilhado || {};
+  const ctl = { otimista: false, congelado: false, conectar: false }; // conectar: once(evt,cb) chama o callback (boot real conecta)
+  const overlays = {};
   const listeners = {};
   const filaTransacao = {};
 
@@ -26,11 +33,25 @@ function buildMockFirebase(latencyMs) {
     if (val === undefined) delete cur[parts[parts.length - 1]];
     else cur[parts[parts.length - 1]] = val;
   }
+  // Visão LOCAL do cliente = servidor + transações otimistas ainda em voo
+  function getView(path) {
+    const ks = Object.keys(overlays);
+    if (!ks.length) return getAt(path);
+    const clone = JSON.parse(JSON.stringify(store));
+    ks.forEach(op => {
+      const parts = op.split('/').filter(Boolean); let cur = clone;
+      for (let i = 0; i < parts.length - 1; i++) { if (cur[parts[i]] == null || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {}; cur = cur[parts[i]]; }
+      cur[parts[parts.length - 1]] = JSON.parse(JSON.stringify(overlays[op]));
+    });
+    const parts = path.split('/').filter(Boolean); let cur = clone;
+    for (const p of parts) { if (cur == null) return undefined; cur = cur[p]; }
+    return cur;
+  }
   function fireListeners(path) {
     const parts = path.split('/').filter(Boolean);
     for (let i = parts.length; i >= 0; i--) {
       const p = parts.slice(0, i).join('/');
-      (listeners[p] || []).forEach(cb => cb(makeSnap(p, getAt(p))));
+      (listeners[p] || []).forEach(cb => cb(makeSnap(p, getView(p))));
     }
   }
   // Há listener ativo neste caminho OU em algum ancestral? (= o SDK tem cache local
@@ -60,7 +81,7 @@ function buildMockFirebase(latencyMs) {
   function makeRef(path) {
     path = path || '';
     const r = {
-      once() { return new Promise(res => setTimeout(() => res(makeSnap(path, getAt(path))), latencyMs)); },
+      once(evt, cb) { return new Promise(res => setTimeout(() => { const sn = makeSnap(path, getAt(path)); if (ctl.conectar && typeof cb === 'function') cb(sn); res(sn); }, latencyMs)); },
       get() { return new Promise(res => setTimeout(() => res(makeSnap(path, getAt(path))), latencyMs)); },
       on(evt, cb) { const kp = path.split('/').filter(Boolean).join('/'); listeners[kp] = listeners[kp] || []; listeners[kp].push(cb); cb(makeSnap(path, getAt(path))); return cb; },
       off() {},
@@ -68,7 +89,16 @@ function buildMockFirebase(latencyMs) {
       remove() { return new Promise(res => setTimeout(() => { setAt(path, undefined); fireListeners(path); res(); }, latencyMs)); },
       update(obj) { return new Promise(res => setTimeout(() => { const caminhos = []; Object.keys(obj).forEach(k => { const full = path ? path + '/' + k : k; setAt(full, obj[k] === null ? undefined : (obj[k] === undefined ? undefined : JSON.parse(JSON.stringify(obj[k])))); caminhos.push(full); }); fireListenersUmaVez(caminhos); res(); }, latencyMs)); },
       orderByKey() { return r; }, limitToLast() { return r; },
-      transaction(fn, cb) {
+      transaction(fn, cb, applyLocally) {
+        const kp = path.split('/').filter(Boolean).join('/');
+        if (ctl.otimista && applyLocally !== false) {
+          const cur0 = getView(kp);
+          const local = fn(cur0 === undefined ? null : JSON.parse(JSON.stringify(cur0)));
+          if (local !== undefined) { overlays[kp] = JSON.parse(JSON.stringify(local)); fireListeners(kp); }
+        }
+        if (ctl.congelado) return; // servidor nunca responde
+        const _cbOrig = cb;
+        cb = function () { if (overlays[kp] !== undefined) delete overlays[kp]; return _cbOrig && _cbOrig.apply(null, arguments); };
         filaTransacao[path] = (filaTransacao[path] || Promise.resolve()).then(() =>
           new Promise(res => {
             setTimeout(() => {
@@ -111,7 +141,7 @@ function buildMockFirebase(latencyMs) {
     appCheck() { return appCheckObj; },
   };
   fb.database.ServerValue = { TIMESTAMP: Date.now() };
-  return { fb, store, appCheckCalls };
+  return { fb, store, appCheckCalls, ctl };
 }
 
 module.exports = { buildMockFirebase };
